@@ -51,19 +51,41 @@ Uygulama `127.0.0.1:3000` üzerinde çalışır — dışarıya doğrudan açıl
 | `worker` | 15 dakikada bir uyarı üretir, günlük özet ve TCMB kuru çeker |
 | `backup` | Günlük SQLite yedeği alır (`./backups`), 30 günden eskiyi siler |
 
-### Tünel
+### Erişim
 
-Uygulama yalnızca yerel arayüze bağlandığı için dışarıdan erişim tünelle olur.
-Cloudflare Tunnel ile:
+Uygulama varsayılan olarak yalnızca `127.0.0.1`'e bağlanır — yerel ağdan bile
+görünmez. Üç seçeneğiniz var:
 
-```bash
-cloudflared tunnel create myfinance
-cloudflared tunnel route dns myfinance finans.alan-adiniz.com
-cloudflared tunnel run --url http://localhost:3000 myfinance
-```
+**1. Cloudflare Zero Trust tüneli (önerilen).** Tünel aynı Docker ağında
+çalışır, uygulamaya `app:3000` üzerinden ulaşır; sunucuda hiçbir port dışarı
+açılmaz.
 
-`.env` içindeki `APP_URL` değerini tünel adresinizle güncelleyin; bildirimlerdeki
-bağlantılar bunu kullanır.
+1. `one.dash.cloudflare.com` → **Networks → Tunnels → Create a tunnel →
+   Cloudflared**. Tünele bir ad verin.
+2. Kurulum ekranındaki jetonu kopyalayın, `.env` dosyasına ekleyin:
+   `TUNNEL_TOKEN=eyJ...`
+3. **Public Hostname** sekmesinde alan adınızı girin; **Service** olarak
+   `HTTP` ve URL olarak **`app:3000`** yazın (`localhost` değil — tünel ayrı
+   bir konteynerde).
+4. Başlatın:
+   ```bash
+   docker compose --profile tunnel up -d
+   docker compose logs -f cloudflared      # "Registered tunnel connection"
+   ```
+5. `.env` içindeki `APP_URL`'i tünel adresinizle güncelleyin ve
+   `docker compose --profile tunnel up -d` ile yeniden başlatın.
+
+İsterseniz aynı panelden **Access → Applications** altında e-posta doğrulaması
+gibi ikinci bir kimlik katmanı ekleyebilirsiniz; uygulamanın kendi şifresi buna
+rağmen açık kalmalıdır.
+
+**2. Yerel ağdan erişim.** `.env` dosyasına `BIND_ADDRESS=0.0.0.0` ekleyip
+`docker compose up -d` deyin; `http://sunucu-ip:3000` açılır. Bu durumda
+uygulama ev ağındaki her cihaza açıktır ve trafik şifrelenmez — yalnızca
+güvendiğiniz bir ağda kullanın.
+
+**3. Tailscale / WireGuard.** `BIND_ADDRESS=0.0.0.0` yapın ve yalnızca VPN
+arayüzünden erişin.
 
 > **Güvenlik notu.** Bu sistem tüm banka hesaplarınızın, kart limitlerinizin ve
 > harcama geçmişinizin tek bir yerde toplandığı bir veri kümesi tutar. Tünel

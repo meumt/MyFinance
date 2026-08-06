@@ -4,8 +4,10 @@ services:
     container_name: myfinance
     restart: unless-stopped
     ports:
-      # Yalnızca yerel ağa açılır; dışarıya tünel üzerinden çıkılır.
-      - "127.0.0.1:3000:3000"
+      # Varsayılan olarak yalnızca sunucunun kendisine açılır — dışarıya
+      # tünel üzerinden çıkılır. Yerel ağdan (192.168.x.x) girmek istiyorsanız
+      # .env dosyasına BIND_ADDRESS=0.0.0.0 ekleyin.
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
     environment:
       TZ: Europe/Istanbul
       DATABASE_PATH: /data/myfinance.db
@@ -71,6 +73,23 @@ services:
           find /backups -name 'myfinance-*.db' -mtime +$$KEEP_DAYS -delete
           sleep 86400
         done
+
+  # Cloudflare Zero Trust tüneli. Panelden oluşturduğunuz jetonu .env içine
+  # TUNNEL_TOKEN olarak koyup şu şekilde başlatın:
+  #
+  #     docker compose --profile tunnel up -d
+  #
+  # Tünel aynı ağda olduğu için uygulamaya doğrudan `app:3000` üzerinden
+  # ulaşır; sunucuda hiçbir portun dışarı açılması gerekmez.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: myfinance-tunnel
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${TUNNEL_TOKEN:?TUNNEL_TOKEN tanimlanmali - Zero Trust panelinden alin}"]
+    depends_on:
+      app:
+        condition: service_healthy
 
 volumes:
   myfinance-data:
