@@ -179,6 +179,15 @@ export interface CardLedgerInput {
   transactions: Transaction[];
   /** Karta bağlı planların taksitleri. */
   installments: Installment[];
+  /**
+   * Taksit planlarının sisteme girildiği tarih (plan id → 'YYYY-MM-DD').
+   *
+   * Devam eden bir alışveriş girilirken "kaç taksiti ödendi" denir. O
+   * taksitler sisteme girmeden ÖNCE ödenmiştir; ait oldukları ekstre
+   * dönemleri çoktan kapanmıştır. Bu tarih verilmezse ödenmiş taksitler de
+   * dönem borcuna yazılır ve geçmişte olmayan bir gecikme görünür.
+   */
+  planEntryDates?: Map<number, ISODate>;
   policy?: MinimumPaymentPolicy;
   ref?: ISODate;
   /** Kaç dönem ileri hesaplansın. */
@@ -243,21 +252,17 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
     cursor = addMonthsToKey(cursor, 1);
   }
 
-  /* Ödemeleri son ödeme tarihine göre kovala: bir ödeme, tarihinden sonraki
-     ilk son ödeme gününe ait ekstreyi kapatır. */
-  const payments = transactions.filter(
-    (t) => t.kind === "kart_odeme" && t.counterCardId === card.id,
-  );
-  const paymentBuckets = new Map<string, number>();
-  for (const p of payments) {
-    const target =
-      periods.find((per) => per.dueDate >= p.date) ?? periods[periods.length - 1];
-    if (!target) continue;
-    paymentBuckets.set(
-      target.monthKey,
-      (paymentBuckets.get(target.monthKey) ?? 0) + p.amountMinor,
-    );
-  }
+  /* Ödemeler tarih sırasına konur ve en eski borçtan başlayarak uygulanır.
+     Gecikmiş bir ekstreyi bugün ödeyebilmek gerekir; ödemeyi doğrudan
+     içinde bulunulan döneme yazmak, kapanmamış eski dönemi sonsuza kadar
+     "gecikmiş" bırakırdı. */
+  const payments = transactions
+    .filter((t) => t.kind === "kart_odeme" && t.counterCardId === card.id)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let paymentIndex = 0;
+  // Henüz bir ekstreye mahsup edilmemiş ödeme bakiyesi (fazla ödeme dahil).
+  let unappliedPayments = 0;
 
   /* Dönem dönem yürü. */
   const result: CardPeriodLedger[] = [];
@@ -284,11 +289,34 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
     for (const inst of installments) {
       if (inst.dueDate < period.periodStart || inst.dueDate > period.periodEnd)
         continue;
+
+      /* Plan sisteme girilmeden önce ödenmiş taksit, kapanmış bir ekstreye
+         aittir; bugünkü borcun parçası değildir. */
+      if (inst.isPaid) {
+        const entryDate = input.planEntryDates?.get(inst.planId);
+        if (entryDate && inst.dueDate < entryDate) continue;
+      }
+
       installmentSum += inst.amountMinor;
     }
 
     const totalDue = carry + charges + installmentSum + fees - refunds;
-    const paid = paymentBuckets.get(period.monthKey) ?? 0;
+
+    /* Bu dönemin son ödeme gününe kadar yapılmış ödemeleri havuza al.
+       Vadesi geçmiş dönemler için bugüne kadar yapılan her ödeme sayılır —
+       gecikmiş borç sonradan ödenebilir. */
+    const admitUntil = period.dueDate > ref ? period.dueDate : ref;
+    while (
+      paymentIndex < payments.length &&
+      payments[paymentIndex].date <= admitUntil
+    ) {
+      unappliedPayments += payments[paymentIndex].amountMinor;
+      paymentIndex++;
+    }
+
+    // En eski borç önce kapanır; artan tutar sonraki döneme alacak olarak geçer.
+    const paid = Math.min(unappliedPayments, Math.max(0, totalDue));
+    unappliedPayments -= paid;
     const carryOut = totalDue - paid;
 
     const isClosed = period.statementDate < ref;

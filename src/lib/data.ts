@@ -149,6 +149,12 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
     planIdsByCard.get(plan.cardId)!.add(plan.id);
   }
 
+  /* Planın sisteme girildiği gün. Bu tarihten önceki ödenmiş taksitler
+     kapanmış ekstrelere aittir ve borç olarak sayılmaz. */
+  const planEntryDates = new Map<number, ISODate>(
+    planRows.map((plan) => [plan.id, msToISODate(plan.createdAt)]),
+  );
+
   const ledgers = new Map<number, CardLedger>();
   for (const card of cardRows) {
     const planIds = planIdsByCard.get(card.id) ?? new Set<number>();
@@ -160,6 +166,7 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
           (t) => t.cardId === card.id || t.counterCardId === card.id,
         ),
         installments: installmentRows.filter((i) => planIds.has(i.planId)),
+        planEntryDates,
         policy: settings.minimumPolicy,
         ref,
       }),
@@ -197,6 +204,16 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
 
 function byId<T extends { id: number }>(rows: T[]): Map<number, T> {
   return new Map(rows.map((r) => [r.id, r]));
+}
+
+/** Unix zaman damgasını Türkiye saatine göre takvim tarihine çevirir. */
+function msToISODate(ms: number): ISODate {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Istanbul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(ms));
 }
 
 /** Kategori adını üst kategorisiyle birlikte döner: "Ulaşım › Yakıt" */

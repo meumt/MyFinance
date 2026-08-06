@@ -130,9 +130,15 @@ const ledger = computeCardLedger({
 
 const period = (key: string) => ledger.periods.find((p) => p.period.monthKey === key)!;
 
-eq(period("2026-07").totalDueMinor, 6_000_00, "Temmuz dönem borcu = devreden 4.000 + taksit 2.000");
-eq(period("2026-07").paymentsMinor, 9_000_00, "ödeme son ödeme gününe göre Temmuz ekstresine yazılır");
-eq(period("2026-07").carryOutMinor, -3_000_00, "fazla ödeme alacağa dönüşür");
+/* Ödemeler en eski borçtan başlayarak mahsup edilir: 9.000 TL sırayla
+   Mayıs, Haziran ve Temmuz taksitlerini (3 × 2.000) kapatır, kalan 3.000
+   alacak olarak sonraki döneme geçer. */
+eq(period("2026-05").paymentsMinor, 2_000_00, "ödeme önce en eski ekstreye gider");
+eq(period("2026-05").carryOutMinor, 0, "en eski dönem kapanır");
+eq(period("2026-07").totalDueMinor, 2_000_00, "önceki dönemler kapandığı için devreden yok");
+eq(period("2026-07").paymentsMinor, 2_000_00, "Temmuz taksiti de aynı ödemeden karşılanır");
+eq(period("2026-07").carryOutMinor, 0, "Temmuz da kapanır");
+eq(period("2026-08").paymentsMinor, 3_000_00, "artan ödeme sonraki döneme alacak olarak geçer");
 
 eq(
   period("2026-08").chargesMinor,
@@ -187,6 +193,81 @@ eq(unpaidLedger.currentDueMinor, 3_000_00, "ödeme yapılmadıysa kesilen ekstre
 eq(unpaidLedger.openPeriodSpendMinor, 1_000_00, "açık dönemde biriken harcama ayrı gösterilir");
 eq(unpaidLedger.totalDebtMinor, 4_000_00, "toplam borç ikisinin toplamı");
 eq(unpaidLedger.nextDueDate, "2026-07-25", "ödenmemiş ekstrenin son ödeme tarihi");
+
+/* ────────── Senaryo: devam eden taksitli alışveriş sonradan girilir ────────── */
+group("Kart defteri — sisteme sonradan girilen taksitli alışveriş");
+
+/**
+ * Gerçek durum: kesim 10, son ödeme 20. 19 Haziran'da 3 taksitli alışveriş
+ * yapılmış, ilk taksit 20 Temmuz'da ödenmiş. Kullanıcı sistemi 6 Ağustos'ta
+ * kuruyor ve "3 taksit, 1'i ödendi" diyor.
+ *
+ * Beklenen: Temmuz ekstresi kapanmış ve ödenmiş sayılır — gecikmiş borç YOK.
+ */
+const gecKart = makeCard({ id: 4, statementDay: 10, dueDay: 20, creditLimitMinor: 50_000_00 });
+const PLAN_GIRIS = "2026-08-06";
+
+// 19 Haziran alışverişi 10 Haziran kesiminden sonra → ilk taksit Temmuz dönemine düşer.
+const gecTaksitler = [
+  inst("2026-07-10", 1_000_00, true), // sisteme girmeden önce ödenmiş
+  inst("2026-08-10", 1_000_00, false),
+  inst("2026-09-10", 1_000_00, false),
+];
+// Test yardımcısı tüm taksitleri planId 1 ile üretiyor.
+for (const t of gecTaksitler) t.planId = 7;
+
+const gecLedger = computeCardLedger({
+  card: gecKart,
+  transactions: [],
+  installments: gecTaksitler,
+  planEntryDates: new Map([[7, PLAN_GIRIS]]),
+  ref: REF,
+});
+
+const gecPeriod = (key: string) =>
+  gecLedger.periods.find((p) => p.period.monthKey === key)!;
+
+eq(gecPeriod("2026-07").installmentsMinor, 0, "sisteme girmeden önce ödenen taksit ekstreye yazılmaz");
+eq(gecPeriod("2026-07").totalDueMinor, 0, "Temmuz ekstresi kapalı — borç yok");
+eq(gecPeriod("2026-07").status, "odendi", "gecikmiş değil, ödenmiş görünür");
+eq(gecLedger.currentDueMinor, 0, "güncel dönem borcu yok");
+eq(gecPeriod("2026-08").installmentsMinor, 1_000_00, "ödenmemiş Ağustos taksiti ekstreye yazılır");
+eq(gecLedger.remainingInstallmentsMinor, 2_000_00, "kalan iki taksit borç olarak durur");
+
+/* Aynı veri, plan giriş tarihi bilinmiyorsa: ödenmiş taksit yine sayılır
+   (eski kayıtlarla geriye dönük uyumluluk). */
+const gecLedgerNoEntry = computeCardLedger({
+  card: gecKart,
+  transactions: [],
+  installments: gecTaksitler,
+  ref: REF,
+});
+eq(
+  gecLedgerNoEntry.periods.find((p) => p.period.monthKey === "2026-07")!.totalDueMinor,
+  1_000_00,
+  "giriş tarihi yoksa davranış değişmez",
+);
+
+/* ─────────── Senaryo: gecikmiş ekstre sonradan ödenir ─────────── */
+group("Kart defteri — gecikmiş ekstrenin sonradan ödenmesi");
+
+const gecikmisLedger = computeCardLedger({
+  card: makeCard({ id: 5, statementDay: 10, dueDay: 20, creditLimitMinor: 50_000_00 }),
+  transactions: [
+    // 5 Temmuz harcaması → 10 Temmuz ekstresi, son ödeme 20 Temmuz (geçti).
+    tx({ date: "2026-07-05", cardId: 5, amountMinor: 2_000_00 }),
+    // Ödeme bugün yapılıyor, yani gecikmeli.
+    tx({ date: "2026-08-06", kind: "kart_odeme", counterCardId: 5, amountMinor: 2_000_00 }),
+  ],
+  installments: [],
+  ref: REF,
+});
+
+const gecikmisTemmuz = gecikmisLedger.periods.find((p) => p.period.monthKey === "2026-07")!;
+eq(gecikmisTemmuz.paymentsMinor, 2_000_00, "bugün yapılan ödeme gecikmiş ekstreye mahsup edilir");
+eq(gecikmisTemmuz.carryOutMinor, 0, "gecikmiş borç kapanır");
+eq(gecikmisTemmuz.status, "odendi", "durum ödendi olur");
+eq(gecikmisLedger.currentDueMinor, 0, "güncel borç kalmaz");
 
 /* ───────────────────── Senaryo: devreden açılış borcu ───────────────────── */
 group("Kart defteri — sisteme girişte devreden borç");

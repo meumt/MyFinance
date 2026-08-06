@@ -7,6 +7,7 @@ import {
   useId,
   useRef,
   useState,
+  useTransition,
   type ReactNode,
 } from "react";
 import { useFormStatus } from "react-dom";
@@ -168,8 +169,11 @@ export function FormDialog({
 /* ───────────────────────────── Silme düğmesi ─────────────────────────────── */
 
 /**
- * Onay isteyen silme düğmesi. İlk tıklama onay ister, ikinci tıklama siler;
- * ayrı bir modal açmadan yanlışlıkla silmeyi engeller.
+ * Onay isteyen silme düğmesi. İlk tıklama onay ister, ikinci tıklama siler.
+ *
+ * Kendi `<form>`'unu AÇMAZ: bu düğme çoğu zaman bir düzenleme formunun içinde
+ * duruyor ve HTML'de iç içe form geçersizdir — tarayıcı içtekini atar, düğme de
+ * dıştaki formu göndermeye başlar. Aksiyon doğrudan çağrılır.
  */
 export function DeleteButton({
   action,
@@ -186,8 +190,9 @@ export function DeleteButton({
   className?: string;
   iconOnly?: boolean;
 }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(action, {});
   const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
 
   /* Onay durumu 4 saniye sonra kendiliğinden geri alınır. */
   useEffect(() => {
@@ -196,19 +201,32 @@ export function DeleteButton({
     return () => clearTimeout(t);
   }, [confirming]);
 
+  function handleClick() {
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.set("id", String(id));
+
+    startTransition(async () => {
+      const result = await action({}, formData);
+      if (result?.error) {
+        setError(result.error);
+        setConfirming(false);
+      }
+    });
+  }
+
   return (
-    <form action={formAction} className="inline-flex flex-col items-end">
-      <input type="hidden" name="id" value={id} />
+    <span className="inline-flex flex-col items-end">
       <button
-        type={confirming ? "submit" : "button"}
-        onClick={(e) => {
-          if (!confirming) {
-            e.preventDefault();
-            setConfirming(true);
-          }
-        }}
+        type="button"
+        onClick={handleClick}
+        disabled={pending}
         className={cn(
-          "focus-ring inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors",
+          "focus-ring inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50",
           iconOnly ? "h-9 w-9" : "h-9 px-2.5",
           confirming
             ? "bg-gider text-white"
@@ -217,20 +235,28 @@ export function DeleteButton({
         )}
         aria-label={confirming ? confirmLabel : label}
       >
-        <Trash2 size={14} />
+        {pending ? (
+          <Loader2 size={14} className="animate-spin" />
+        ) : (
+          <Trash2 size={14} />
+        )}
         {iconOnly ? null : confirming ? confirmLabel : label}
       </button>
-      {state.error ? (
+      {error ? (
         <span className="text-gider mt-1 max-w-48 text-right text-[10px] leading-tight">
-          {state.error}
+          {error}
         </span>
       ) : null}
-    </form>
+    </span>
   );
 }
 
-/* ─────────────────── Basit aksiyon düğmesi (form gerektiren) ─────────────── */
+/* ────────────────────── Tek tıklamalık aksiyon düğmesi ────────────────────── */
 
+/**
+ * Sabit alanlarla bir sunucu aksiyonu çalıştırır (ödendi işaretle, işle vb.).
+ * `DeleteButton` ile aynı sebeple form kullanmaz.
+ */
 export function ActionButton({
   action,
   fields,
@@ -248,28 +274,39 @@ export function ActionButton({
   className?: string;
   title?: string;
 }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(action, {});
-  const { pending } = useFormStatus();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function handleClick() {
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(fields ?? {})) {
+      formData.set(key, String(value));
+    }
+
+    setError(null);
+    startTransition(async () => {
+      const result = await action({}, formData);
+      if (result?.error) setError(result.error);
+    });
+  }
 
   return (
-    <form action={formAction} className="inline-flex flex-col">
-      {Object.entries(fields ?? {}).map(([key, value]) => (
-        <input key={key} type="hidden" name={key} value={String(value)} />
-      ))}
+    <span className="inline-flex flex-col">
       <Button
-        type="submit"
+        type="button"
+        onClick={handleClick}
         variant={variant}
         size={size}
         className={className}
         disabled={pending}
         title={title}
       >
-        {children}
+        {pending ? <Loader2 size={14} className="animate-spin" /> : children}
       </Button>
-      {state.error ? (
-        <span className="text-gider mt-1 text-[10px] leading-tight">{state.error}</span>
+      {error ? (
+        <span className="text-gider mt-1 text-[10px] leading-tight">{error}</span>
       ) : null}
-    </form>
+    </span>
   );
 }
 
