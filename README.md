@@ -51,6 +51,26 @@ Uygulama `127.0.0.1:3000` üzerinde çalışır — dışarıya doğrudan açıl
 | `worker` | 15 dakikada bir uyarı üretir, günlük özet ve TCMB kuru çeker |
 | `backup` | Günlük SQLite yedeği alır (`./backups`), 30 günden eskiyi siler |
 
+### Sunucu yeniden başladığında
+
+Tüm servisler `restart: unless-stopped` ile tanımlıdır; Docker açılışta onları
+kendiliğinden kaldırır. Tek koşul, Docker'ın kendisinin açılışta başlaması:
+
+```bash
+sudo systemctl is-enabled docker     # "enabled" dönmeli
+sudo systemctl enable docker         # değilse
+```
+
+`docker compose down` ya da `stop` derseniz konteynerler kasıtlı durdurulmuş
+sayılır ve yeniden başlatmada kalkmazlar; tekrar `docker compose up -d` demek
+gerekir. Yalnızca `reboot` durumunda otomatik gelirler.
+
+Açılışta Docker, `depends_on` sırasını dikkate almadan tüm konteynerleri aynı
+anda kaldırır. Bu yüzden migration ve seed adımları eşzamanlılığa karşı
+korumalıdır: yazma kilidi beklenir ve yeniden denenir, seed ise tek bir işlem
+içinde yürür. Dört süreç aynı anda çalıştırıldığında da hepsi temiz çıkar ve
+veri bozulmaz.
+
 ### Erişim
 
 Uygulama varsayılan olarak yalnızca `127.0.0.1`'e bağlanır — yerel ağdan bile

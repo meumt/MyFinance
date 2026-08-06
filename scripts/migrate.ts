@@ -1,6 +1,12 @@
 /**
- * Veritabanı şemasını uygular. Konteyner her açılışta bunu çalıştırır;
+ * Veritabanı şemasını uygular. Her konteyner açılışta bunu çalıştırır;
  * uygulanmış migration'lar atlandığı için tekrar tekrar koşması güvenlidir.
+ *
+ * Sunucu yeniden başladığında Docker, `depends_on` sırasını dikkate almadan
+ * tüm konteynerleri aynı anda kaldırır. Bu yüzden iki süreç aynı anda
+ * migration çalıştırmayı deneyebilir. SQLite'ın kendi kilidi yazmayı tek
+ * sürece verir; burada beklemeyi ve yeniden denemeyi ekliyoruz ki ikinci
+ * süreç hata verip konteyneri döngüye sokmasın.
  */
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
@@ -9,17 +15,55 @@ import fs from "node:fs";
 import path from "node:path";
 
 const dbPath = process.env.DATABASE_PATH ?? "./data/myfinance.db";
+const MAX_ATTEMPTS = 5;
+const RETRY_DELAY_MS = 2000;
+
+function isLockError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /SQLITE_BUSY|database is locked|database table is locked/i.test(message);
+}
+
+function sleepSync(ms: number): void {
+  // Migration tek seferlik ve kısa bir işlem; senkron beklemek yeterli.
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function runMigrations(): void {
+  const sqlite = new Database(dbPath);
+  try {
+    // Kilit bekleme süresi: başka bir süreç yazıyorsa hata vermek yerine bekle.
+    sqlite.pragma("busy_timeout = 15000");
+    sqlite.pragma("journal_mode = WAL");
+    sqlite.pragma("foreign_keys = ON");
+
+    migrate(drizzle(sqlite), { migrationsFolder: "./drizzle" });
+  } finally {
+    sqlite.close();
+  }
+}
+
 const dir = path.dirname(dbPath);
 if (dir && dir !== "." && !fs.existsSync(dir)) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
-const sqlite = new Database(dbPath);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+let lastError: unknown = null;
 
-const db = drizzle(sqlite);
-migrate(db, { migrationsFolder: "./drizzle" });
+for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  try {
+    runMigrations();
+    console.log(`✓ Şema güncel: ${dbPath}`);
+    process.exit(0);
+  } catch (error) {
+    lastError = error;
+    if (!isLockError(error) || attempt === MAX_ATTEMPTS) break;
 
-console.log(`✓ Şema güncel: ${dbPath}`);
-sqlite.close();
+    console.log(
+      `· Veritabanı meşgul (deneme ${attempt}/${MAX_ATTEMPTS}), ${RETRY_DELAY_MS / 1000} sn sonra tekrar denenecek`,
+    );
+    sleepSync(RETRY_DELAY_MS);
+  }
+}
+
+console.error("Şema uygulanamadı:", lastError);
+process.exit(1);

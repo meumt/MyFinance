@@ -22,31 +22,57 @@ async function hashPassword(password: string) {
 
 const dbPath = process.env.DATABASE_PATH ?? "./data/myfinance.db";
 const sqlite = new Database(dbPath);
+// Başka bir konteyner aynı anda yazıyorsa hata vermek yerine bekle.
+sqlite.pragma("busy_timeout = 15000");
 sqlite.pragma("foreign_keys = ON");
 
 async function main() {
 /* ─────────────────────────────── Kullanıcı ─────────────────────────────── */
 
 const username = process.env.ADMIN_USERNAME ?? "admin";
+
+/* Şifre karması yavaş (scrypt) ve asenkron; işlemi açmadan önce hesaplanır ki
+   yazma kilidi gereksiz yere tutulmasın. */
+let generatedPassword: string | null = null;
+const password =
+  process.env.ADMIN_PASSWORD ??
+  (generatedPassword = randomBytes(9).toString("base64url"));
+const passwordHash = await hashPassword(password);
+
+/* Sunucu yeniden başladığında birden fazla konteyner aynı anda seed
+   çalıştırabilir. BEGIN IMMEDIATE yazma kilidini baştan alır; ikinci süreç
+   busy_timeout süresince bekler, sonra her şeyi hazır bulup hiçbir şey
+   yazmaz. Kilit olmadan "önce kontrol et, sonra yaz" deseni yarışa açıktır. */
+sqlite.exec("BEGIN IMMEDIATE");
+
+let committed = false;
+const rollbackOnFailure = () => {
+  if (!committed) {
+    try {
+      sqlite.exec("ROLLBACK");
+    } catch {
+      /* işlem zaten kapanmışsa yapacak bir şey yok */
+    }
+  }
+};
+
+try {
+
 const existingUser = sqlite
   .prepare("SELECT id FROM users WHERE username = ?")
   .get(username) as { id: number } | undefined;
 
-let generatedPassword: string | null = null;
-
 if (!existingUser) {
-  const password =
-    process.env.ADMIN_PASSWORD ??
-    (generatedPassword = randomBytes(9).toString("base64url"));
-  const hash = await hashPassword(password);
   sqlite
     .prepare(
       "INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?)",
     )
-    .run(username, hash, process.env.ADMIN_DISPLAY_NAME ?? "Ben");
+    .run(username, passwordHash, process.env.ADMIN_DISPLAY_NAME ?? "Ben");
   console.log(`✓ Kullanıcı oluşturuldu: ${username}`);
 } else {
   console.log(`· Kullanıcı zaten var: ${username}`);
+  // Kullanıcı zaten varsa üretilen şifre kullanılmadı; ekranda gösterme.
+  generatedPassword = null;
 }
 
 /* ────────────────────────── Bankalar & kurumlar ────────────────────────── */
@@ -363,9 +389,15 @@ upsertCategory("Kredi Kartı Ödemesi", null, "transfer", "credit-card", "#64748
 
 console.log(`✓ Kategori ağacı hazır (${categoryCount} kategori işlendi)`);
 
-/* ─────────────────────────────── Özet ──────────────────────────────────── */
+sqlite.exec("COMMIT");
+committed = true;
 
-sqlite.close();
+} finally {
+  rollbackOnFailure();
+  sqlite.close();
+}
+
+/* ─────────────────────────────── Özet ──────────────────────────────────── */
 
 console.log("\n─────────────────────────────────────────");
 if (generatedPassword) {
