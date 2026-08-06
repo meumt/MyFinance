@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Çevrimdışı · MyFinance</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+        background: #f6f7f9;
+        color: #0f172a;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        text-align: center;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0b1020; color: #e8edf7; }
+        .muted { color: #93a1bb !important; }
+        button { background: #4f46e5 !important; }
+      }
+      .badge {
+        width: 3.5rem; height: 3.5rem; border-radius: 1rem;
+        background: #4f46e5; color: #fff;
+        display: grid; place-items: center;
+        font-size: 1.6rem; font-weight: 700;
+        margin: 0 auto 1.25rem;
+      }
+      h1 { font-size: 1.125rem; margin: 0 0 .5rem; }
+      p { margin: 0; font-size: .875rem; line-height: 1.6; max-width: 22rem; }
+      .muted { color: #64748b; }
+      button {
+        margin-top: 1.5rem; border: 0; cursor: pointer;
+        background: #4f46e5; color: #fff;
+        padding: .7rem 1.25rem; border-radius: .6rem;
+        font-size: .875rem; font-weight: 500; font-family: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="badge">₺</div>
+      <h1>Bağlantı yok</h1>
+      <p class="muted">
+        MyFinance verileri kendi sunucunuzda tutulur ve her zaman canlı okunur.
+        Sunucuya ulaşılamadığı için sayfa gösterilemiyor.
+      </p>
+      <button onclick="location.reload()">Yeniden dene</button>
+    </main>
+  </body>
+</html>

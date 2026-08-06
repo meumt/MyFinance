@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Maskelenebilir simge: güvenli alan içeride kalsın diye simge küçültüldü -->
+  <rect width="512" height="512" fill="#4f46e5"/>
+  <g fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"
+     transform="translate(256 256) scale(0.72) translate(-256 -256)">
+    <path d="M196 128 v230"/>
+    <path d="M196 358 h34 c62 0 112 -50 112 -112"/>
+    <path d="M150 214 l108 -46"/>
+    <path d="M150 274 l108 -46"/>
+  </g>
+</svg>

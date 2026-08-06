@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.gitignore
+data
+backups
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local
+.env*.local
+npm-debug.log*
+README.md
+tests
+.DS_Store

@@ -1,0 +1,21 @@
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# Veri ve yedekler — asla repoya girmemeli
+data/
+backups/
+*.db
+*.db-shm
+*.db-wal
+
+# Ortam değişkenleri
+.env
+.env.local
+.env*.local
+
+.DS_Store
+npm-debug.log*

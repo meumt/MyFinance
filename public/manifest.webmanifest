@@ -1,0 +1,51 @@
+{
+  "name": "MyFinance — Kişisel Finans",
+  "short_name": "MyFinance",
+  "description": "Hesaplar, kartlar, taksitler ve harcama analizi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b1020",
+  "theme_color": "#6366f1",
+  "lang": "tr",
+  "dir": "ltr",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apple-icon",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Hareketler",
+      "short_name": "Hareket",
+      "url": "/hareketler"
+    },
+    {
+      "name": "Ödeme takvimi",
+      "short_name": "Takvim",
+      "url": "/takvim"
+    },
+    {
+      "name": "Analiz",
+      "short_name": "Analiz",
+      "url": "/analiz"
+    }
+  ]
+}

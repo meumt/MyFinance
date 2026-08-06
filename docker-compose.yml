@@ -1,0 +1,68 @@
+services:
+  app:
+    build: .
+    container_name: myfinance
+    restart: unless-stopped
+    ports:
+      # Yalnızca yerel ağa açılır; dışarıya tünel üzerinden çıkılır.
+      - "127.0.0.1:3000:3000"
+    environment:
+      TZ: Europe/Istanbul
+      DATABASE_PATH: /data/myfinance.db
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET tanimlanmali - .env dosyasina ekleyin}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    volumes:
+      - myfinance-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/saglik"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Bildirimleri düzenli üretir: son ödeme, abonelik, limit ve ek hesap uyarıları.
+  worker:
+    build: .
+    container_name: myfinance-worker
+    restart: unless-stopped
+    command: ["npx", "--no-install", "tsx", "scripts/worker.ts"]
+    environment:
+      TZ: Europe/Istanbul
+      DATABASE_PATH: /data/myfinance.db
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET tanimlanmali}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      NODE_OPTIONS: --conditions=react-server
+    volumes:
+      - myfinance-data:/data
+    depends_on:
+      - app
+
+  # Günlük yedek: SQLite'ın kendi yedekleme komutuyla tutarlı kopya alır.
+  backup:
+    image: alpine:3.20
+    container_name: myfinance-backup
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Istanbul
+      # Kaç günlük yedek saklansın
+      KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
+    volumes:
+      - myfinance-data:/data:ro
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        apk add --no-cache sqlite tzdata >/dev/null
+        while true; do
+          STAMP=$$(date +%Y%m%d-%H%M)
+          sqlite3 /data/myfinance.db ".backup '/backups/myfinance-$$STAMP.db'" \
+            && echo "[$$(date '+%F %T')] yedek alindi: myfinance-$$STAMP.db" \
+            || echo "[$$(date '+%F %T')] YEDEK BASARISIZ"
+          find /backups -name 'myfinance-*.db' -mtime +$$KEEP_DAYS -delete
+          sleep 86400
+        done
+
+volumes:
+  myfinance-data:

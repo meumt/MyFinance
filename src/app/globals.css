@@ -1,0 +1,217 @@
+@import "tailwindcss";
+
+/* Tema sınıf ile değiştirilebilsin (sistem tercihi + elle geçiş). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Marka rengi */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+
+  /* Finansal anlam renkleri */
+  --color-gelir: #10b981;
+  --color-gelir-soft: #d1fae5;
+  --color-gider: #f43f5e;
+  --color-gider-soft: #ffe4e6;
+  --color-uyari: #f59e0b;
+  --color-uyari-soft: #fef3c7;
+  --color-borc: #a855f7;
+}
+
+/*
+ * Yüzey renkleri CSS değişkeni olarak tanımlanır; koyu temada aynı sınıflar
+ * farklı değer alır. Böylece bileşenlerde `dark:` tekrarına gerek kalmaz.
+ */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+  --shadow-color: 215 25% 27%;
+
+  /*
+   * Grafik renkleri. Renk körlüğü ayrımı ve yüzey kontrastı doğrulayıcıdan
+   * geçirilmiştir; elle değiştirmeden önce yeniden doğrulanmalıdır.
+   * Açık temada bazı tonlar 3:1 kontrastın altında olduğu için grafiklerde
+   * değer etiketleri ve tablo görünümü her zaman bulunur.
+   */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-gelir: #1baf7a;
+  --chart-gider: #e34948;
+  --chart-grid: #e9edf3;
+  --chart-axis: #94a3b8;
+  --chart-ramp-1: #dbeafe;
+  --chart-ramp-2: #93c5fd;
+  --chart-ramp-3: #4b93e0;
+  --chart-ramp-4: #2a78d6;
+  --chart-ramp-5: #1c5fae;
+}
+
+.dark {
+  --bg: #0b1020;
+  --surface: #131a2e;
+  --surface-2: #1a2337;
+  --surface-3: #243046;
+  --border: #263149;
+  --border-strong: #35415c;
+  --text: #e8edf7;
+  --text-muted: #93a1bb;
+  --text-faint: #6b7a96;
+  --shadow-color: 220 60% 3%;
+
+  /* Koyu tema, açık temanın çevrilmiş hâli değil; koyu yüzey için ayrı seçildi. */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-gelir: #199e70;
+  --chart-gider: #e66767;
+  --chart-grid: #202b42;
+  --chart-axis: #6b7a96;
+  --chart-ramp-1: #1e3a5f;
+  --chart-ramp-2: #24548f;
+  --chart-ramp-3: #2d6fbe;
+  --chart-ramp-4: #3987e5;
+  --chart-ramp-5: #63a4ec;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* iOS'ta girdi alanına odaklanınca sayfanın zıplamasını engeller. */
+    touch-action: manipulation;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    /* Alt gezinme çubuğu içerik üstüne binmesin. */
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* Rakamlar tablolarda hizalı dursun. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Mobilde 16px altı yazı tipi iOS'ta otomatik yakınlaştırma tetikler. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  @media (min-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 0.875rem;
+    }
+  }
+
+  ::selection {
+    background: var(--color-brand-500);
+    color: white;
+  }
+}
+
+@layer components {
+  .surface {
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .surface-2 {
+    background: var(--surface-2);
+  }
+
+  .muted {
+    color: var(--text-muted);
+  }
+
+  .faint {
+    color: var(--text-faint);
+  }
+
+  /* Kaydırılabilir alanlarda ince kaydırma çubuğu */
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+
+  .thin-scroll::-webkit-scrollbar {
+    height: 6px;
+    width: 6px;
+  }
+
+  .thin-scroll::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+  }
+
+  /* Yatay kaydırmalı tablolar sayfayı kaydırmasın */
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@layer utilities {
+  /* Girdi ekranında hızlı odak halkası */
+  .focus-ring {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+
+  .focus-ring:focus-visible {
+    outline-color: var(--color-brand-500);
+  }
+
+  .animate-in {
+    animation: fade-in 0.15s ease-out;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-in {
+      animation: none;
+    }
+  }
+}
