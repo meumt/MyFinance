@@ -27,13 +27,12 @@ services:
     build: .
     container_name: myfinance-worker
     restart: unless-stopped
-    command: ["npx", "--no-install", "tsx", "scripts/worker.ts"]
+    command: ["node", "dist-scripts/worker.cjs"]
     environment:
       TZ: Europe/Istanbul
       DATABASE_PATH: /data/myfinance.db
       AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET tanimlanmali}
       APP_URL: ${APP_URL:-http://localhost:3000}
-      NODE_OPTIONS: --conditions=react-server
     volumes:
       - myfinance-data:/data
     depends_on:

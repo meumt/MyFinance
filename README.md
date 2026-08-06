@@ -97,6 +97,7 @@ npm run dev
 | `npm run typecheck` | Tür denetimi |
 | `npm run db:generate` | Şema değişikliğinden migration üretir |
 | `npm run db:migrate` | Migration'ları uygular |
+| `npm run build:scripts` | Yardımcı betikleri düz JS'e derler (Docker imajı bunu kullanır) |
 | `npm run notify -- --dry` | Uyarıları gönderim yapmadan dener |
 | `npm run worker` | Zamanlayıcıyı elle çalıştırır |
 
@@ -249,3 +250,12 @@ scripts/                migration, seed, bildirim, zamanlayıcı
 
 Hesaplama mantığı (`ledger.ts`, `statements.ts`, `money.ts`) veritabanından
 bağımsız saf fonksiyonlardır ve `npm test` ile doğrulanır.
+
+### Çalışma imajı neden TypeScript içermiyor
+
+`scripts/` altındaki yardımcılar (migration, seed, bildirim, zamanlayıcı) derleme
+aşamasında esbuild ile düz JavaScript'e paketlenir (`dist-scripts/`). Çalışma
+imajında ne TypeScript araç zinciri, ne kaynak kod, ne de `tsconfig.json`
+bulunur — yalnızca `node` yeterlidir. Native olduğu için yalnızca
+`better-sqlite3` paket dışında bırakılır; onu da Next'in standalone çıktısı
+taşır.

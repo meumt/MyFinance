@@ -17,12 +17,12 @@ chown -R node:node "$DB_DIR" 2>/dev/null || true
 
 # Şemayı uygula (uygulanmış migration'lar atlanır).
 echo "→ Veritabanı şeması kontrol ediliyor: $DB_PATH"
-su-exec node npx --no-install tsx scripts/migrate.ts
+su-exec node node dist-scripts/migrate.cjs
 
 # İlk çalıştırmada kullanıcı ve başlangıç verilerini oluştur.
 if [ ! -f "$DB_DIR/.seeded" ]; then
   echo "→ Başlangıç verileri yükleniyor"
-  su-exec node npx --no-install tsx scripts/seed.ts
+  su-exec node node dist-scripts/seed.cjs
   su-exec node touch "$DB_DIR/.seeded"
 fi
 

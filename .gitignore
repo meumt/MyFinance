@@ -19,3 +19,6 @@ backups/
 
 .DS_Store
 npm-debug.log*
+
+# Derlenmiş yardımcı betikler
+dist-scripts/

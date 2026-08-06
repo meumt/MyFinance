@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # ─────────────────────────────── Bağımlılıklar ───────────────────────────────
 FROM node:22-alpine AS deps
 WORKDIR /app
@@ -21,7 +19,13 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 # Derleme aşaması için yer tutucu; çalışma anında gerçek değer verilir.
 ENV AUTH_SECRET=derleme-asamasi-icin-yer-tutucu-degeri-32-karakter
+
 RUN npm run build
+
+# Yardımcı betikler (migration, seed, bildirim, zamanlayıcı) düz JavaScript'e
+# derlenir. Böylece çalışma imajında TypeScript araç zincirine, kaynak koda ya
+# da tsconfig'e ihtiyaç kalmaz — yalnızca node yeter.
+RUN npm run build:scripts
 
 # ──────────────────────────────── Çalıştırma ─────────────────────────────────
 FROM node:22-alpine AS runner
@@ -41,15 +45,9 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Şema ve seed işlemleri için gerekli dosyalar
+# Derlenmiş yardımcı betikler ve migration SQL dosyaları.
+COPY --from=builder /app/dist-scripts ./dist-scripts
 COPY --from=builder /app/drizzle ./drizzle
-COPY --from=builder /app/scripts ./scripts
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/tsconfig.json ./tsconfig.json
-COPY --from=builder /app/node_modules/tsx ./node_modules/tsx
-COPY --from=builder /app/node_modules/esbuild ./node_modules/esbuild
-COPY --from=builder /app/node_modules/get-tsconfig ./node_modules/get-tsconfig
-COPY --from=builder /app/node_modules/resolve-pkg-maps ./node_modules/resolve-pkg-maps
 
 COPY docker-entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
