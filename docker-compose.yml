@@ -37,7 +37,10 @@ services:
     volumes:
       - myfinance-data:/data
     depends_on:
-      - app
+      # Şemayı app kurar. Worker'ın aynı anda migration çalıştırıp
+      # veritabanını kilitlememesi için app sağlıklı olana kadar bekler.
+      app:
+        condition: service_healthy
 
   # Günlük yedek: SQLite'ın kendi yedekleme komutuyla tutarlı kopya alır.
   backup:
@@ -49,8 +52,14 @@ services:
       # Kaç günlük yedek saklansın
       KEEP_DAYS: ${BACKUP_KEEP_DAYS:-30}
     volumes:
-      - myfinance-data:/data:ro
+      # WAL modundaki bir veritabanını okumak için bile -shm dosyası
+      # oluşturulabilmeli; salt okunur bağlarsak yedekleme her gün sessizce
+      # başarısız olur.
+      - myfinance-data:/data
       - ./backups:/backups
+    depends_on:
+      app:
+        condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
