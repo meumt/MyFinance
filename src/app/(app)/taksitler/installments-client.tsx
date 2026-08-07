@@ -1,65 +1,75 @@
 "use client";
 
-import { Check, ListChecks, Pencil } from "lucide-react";
+import { CalendarDays, ListChecks, Pencil } from "lucide-react";
 import { useState } from "react";
 
-import {
-  deletePlanAction,
-  savePlanAction,
-  toggleInstallmentAction,
-} from "@/app/actions/installments";
+import { deletePlanAction, savePlanAction } from "@/app/actions/installments";
 import { InstallmentLoadChart } from "@/components/charts";
 import { Money } from "@/components/display";
 import {
   CurrencyField,
-  DateField,
   FieldRow,
-  MoneyField,
-  NumberField,
   SelectField,
   TextField,
   type Option,
 } from "@/components/fields";
-import { ActionButton, AddButton, DeleteButton, FormDialog } from "@/components/form-dialog";
+import { AddButton, DeleteButton, FormDialog } from "@/components/form-dialog";
 import {
   Badge,
   Button,
   EmptyState,
+  Field,
+  Input,
   Panel,
   PanelHeader,
   ProgressBar,
+  Select,
   cn,
 } from "@/components/ui";
 import { formatDateTR, formatMonthTR } from "@/lib/dates";
-import { formatMoney } from "@/lib/money";
+import {
+  previewSchedule,
+  STATE_SHORT,
+  type InstallmentSchedule,
+  type InstallmentState,
+} from "@/lib/installments";
+import { formatMoney, parseMoneyToMinor } from "@/lib/money";
+
+export interface CardOption extends Option {
+  statementDay: number;
+  dueDay: number;
+}
 
 export interface PlanView {
   id: number;
   cardId: number;
   cardName: string;
   cardColor: string;
+  statementDay: number | null;
+  dueDay: number | null;
   description: string;
   purchaseDate: string;
   totalAmountMinor: number;
   currency: string;
   installmentCount: number;
-  paidCount: number;
   categoryId: number | null;
   merchantName: string | null;
   notes: string | null;
-  status: string;
   remainingMinor: number;
-  monthlyMinor: number;
+  settledCount: number;
   nextDueDate: string | null;
+  nextAmountMinor: number;
   lastDueDate: string | null;
-  installments: Array<{
-    id: number;
-    seq: number;
-    amountMinor: number;
-    dueDate: string;
-    isPaid: boolean;
-  }>;
+  schedule: InstallmentSchedule[];
 }
+
+const STATE_TONE: Record<InstallmentState, "nötr" | "gelir" | "gider" | "uyari" | "brand"> = {
+  gecmis: "nötr",
+  odendi: "gelir",
+  bekliyor: "gider",
+  bu_donemde: "brand",
+  gelecek: "nötr",
+};
 
 export function InstallmentsClient({
   plans,
@@ -69,7 +79,7 @@ export function InstallmentsClient({
   totals,
 }: {
   plans: PlanView[];
-  cards: Option[];
+  cards: CardOption[];
   categories: Option[];
   loadByMonth: Array<{
     month: string;
@@ -82,8 +92,8 @@ export function InstallmentsClient({
   const [editing, setEditing] = useState<PlanView | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
 
-  const active = plans.filter((p) => p.status === "aktif");
-  const completed = plans.filter((p) => p.status !== "aktif");
+  const active = plans.filter((p) => p.remainingMinor > 0);
+  const finished = plans.filter((p) => p.remainingMinor <= 0);
   const lastDue = active.reduce<string | null>(
     (acc, p) => (p.lastDueDate && (!acc || p.lastDueDate > acc) ? p.lastDueDate : acc),
     null,
@@ -94,17 +104,17 @@ export function InstallmentsClient({
       <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
         <Panel className="p-3 sm:p-4">
           <p className="faint text-[11px] font-medium tracking-wide uppercase">
-            Kalan taksit yükü
+            Kalan taksit borcu
           </p>
-          <p className="tabular mt-1 text-base font-semibold sm:text-xl">
+          <p className="para tabular mt-1 text-base font-semibold sm:text-xl">
             {formatMoney(totals.remainingMinor, "TRY", { compact: true })}
           </p>
         </Panel>
         <Panel className="p-3 sm:p-4">
           <p className="faint text-[11px] font-medium tracking-wide uppercase">
-            Bu ay ödenecek
+            Bu ayki ekstrelerde
           </p>
-          <p className="tabular mt-1 text-base font-semibold sm:text-xl">
+          <p className="para tabular mt-1 text-base font-semibold sm:text-xl">
             {formatMoney(totals.thisMonthMinor, "TRY", { compact: true })}
           </p>
         </Panel>
@@ -122,7 +132,7 @@ export function InstallmentsClient({
         <Panel>
           <PanelHeader
             title="Aylara göre taksit yükü"
-            subtitle="Önümüzdeki 18 ay — sabit ödemeleriniz"
+            subtitle="Hangi ay hangi ekstreye ne kadar taksit düşüyor"
           />
           <div className="p-3 sm:p-4">
             <InstallmentLoadChart data={loadByMonth} />
@@ -133,7 +143,7 @@ export function InstallmentsClient({
       <Panel>
         <PanelHeader
           title="Taksitli alışverişler"
-          subtitle={`${active.length} aktif plan`}
+          subtitle="Taksitler ekstre tarihlerine göre kendiliğinden ilerler"
           action={
             <span onClick={() => setCreating(true)}>
               <AddButton label="Taksit" />
@@ -144,11 +154,11 @@ export function InstallmentsClient({
         {active.length === 0 ? (
           <EmptyState
             icon={<ListChecks size={28} />}
-            title="Aktif taksitli alışveriş yok"
-            description="Devam eden taksitlerinizi girin. Ödenmiş taksit sayısını belirtmeniz yeterli — kalan takvimi sistem kurar."
+            title="Devam eden taksitli alışveriş yok"
+            description="Alışverişi girin — hangi taksitin hangi ekstreye düşeceğini sistem hesaplar, siz bir şey işaretlemezsiniz."
             action={
               <Button variant="primary" onClick={() => setCreating(true)}>
-                Taksit planı ekle
+                Taksitli alışveriş ekle
               </Button>
             }
           />
@@ -165,16 +175,18 @@ export function InstallmentsClient({
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{plan.description}</p>
-                      <p className="faint mt-0.5 truncate text-[11px]">
+                      <p className="para faint mt-0.5 truncate text-[11px]">
                         {plan.cardName} · {formatDateTR(plan.purchaseDate)} ·{" "}
-                        {formatMoney(plan.totalAmountMinor, plan.currency)} toplam
+                        {plan.installmentCount} taksit ·{" "}
+                        {formatMoney(plan.totalAmountMinor, plan.currency)}
                       </p>
                       {plan.nextDueDate ? (
-                        <p className="muted mt-0.5 text-[11px]">
-                          Sonraki taksit {formatMonthTR(plan.nextDueDate.slice(0, 7))} ·{" "}
+                        <p className="muted para mt-0.5 text-[11px]">
+                          Sıradaki taksit{" "}
                           <span className="tabular font-medium">
-                            {formatMoney(plan.monthlyMinor, plan.currency)}
-                          </span>
+                            {formatMoney(plan.nextAmountMinor, plan.currency)}
+                          </span>{" "}
+                          · {formatDateTR(plan.nextDueDate)} tarihinde ödenecek
                         </p>
                       ) : null}
                     </div>
@@ -185,14 +197,14 @@ export function InstallmentsClient({
                         className="block text-sm font-semibold"
                       />
                       <span className="faint text-[10px]">
-                        {plan.paidCount}/{plan.installmentCount} ödendi
+                        {plan.settledCount}/{plan.installmentCount} tamamlandı
                       </span>
                     </div>
                   </div>
 
                   <div className="mt-2.5">
                     <ProgressBar
-                      ratio={plan.paidCount / plan.installmentCount}
+                      ratio={plan.settledCount / plan.installmentCount}
                       tone="gelir"
                     />
                   </div>
@@ -203,6 +215,7 @@ export function InstallmentsClient({
                       variant="ghost"
                       onClick={() => setExpanded(expanded === plan.id ? null : plan.id)}
                     >
+                      <CalendarDays size={13} />
                       {expanded === plan.id ? "Takvimi gizle" : "Takvim"}
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => setEditing(plan)}>
@@ -214,42 +227,54 @@ export function InstallmentsClient({
                 </div>
 
                 {expanded === plan.id ? (
-                  <div className="surface-2 px-4 pt-1 pb-3 sm:px-5">
-                    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-                      {plan.installments.map((inst) => (
-                        <div
-                          key={inst.id}
-                          className={cn(
-                            "surface flex items-center justify-between gap-2 rounded-lg px-2.5 py-2",
-                            inst.isPaid && "opacity-60",
-                          )}
-                        >
-                          <div className="min-w-0">
-                            <p className="faint text-[10px]">
-                              {inst.seq}. taksit
-                            </p>
-                            <p className="tabular truncate text-xs font-medium">
-                              {formatMoney(inst.amountMinor, plan.currency, {
+                  <div className="surface-2 table-scroll border-t">
+                    <table className="w-full min-w-[34rem] text-xs">
+                      <thead>
+                        <tr className="faint border-b text-left">
+                          <th className="px-4 py-2 font-medium sm:px-5">Taksit</th>
+                          <th className="px-2 py-2 text-right font-medium">Tutar</th>
+                          <th className="px-2 py-2 font-medium">Hangi ekstrede</th>
+                          <th className="px-2 py-2 font-medium">Ne zaman ödenir</th>
+                          <th className="px-4 py-2 font-medium sm:px-5">Durum</th>
+                        </tr>
+                      </thead>
+                      <tbody className="tabular">
+                        {plan.schedule.map((s) => (
+                          <tr
+                            key={s.id}
+                            className={cn(
+                              "border-b last:border-b-0",
+                              s.state === "bu_donemde" && "bg-brand-500/5",
+                              !s.countsAsDebt && "opacity-55",
+                            )}
+                          >
+                            <td className="px-4 py-2 sm:px-5">
+                              {s.seq}/{plan.installmentCount}
+                            </td>
+                            <td className="px-2 py-2 text-right font-medium">
+                              {formatMoney(s.amountMinor, plan.currency, {
                                 showSymbol: false,
                               })}
-                            </p>
-                            <p className="faint text-[10px]">
-                              {formatMonthTR(inst.dueDate.slice(0, 7))}
-                            </p>
-                          </div>
-                          <ActionButton
-                            action={toggleInstallmentAction}
-                            fields={{ id: inst.id }}
-                            variant={inst.isPaid ? "success" : "secondary"}
-                            size="sm"
-                            className="h-7 w-7 shrink-0 px-0"
-                            title={inst.isPaid ? "Ödenmedi işaretle" : "Ödendi işaretle"}
-                          >
-                            <Check size={13} />
-                          </ActionButton>
-                        </div>
-                      ))}
-                    </div>
+                            </td>
+                            <td className="muted px-2 py-2">
+                              {formatDateTR(s.statementDate)} kesimi
+                            </td>
+                            <td className="px-2 py-2">{formatDateTR(s.dueDate)}</td>
+                            <td className="px-4 py-2 sm:px-5">
+                              <Badge tone={STATE_TONE[s.state]}>
+                                {STATE_SHORT[s.state]}
+                              </Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="faint px-4 py-2.5 text-[11px] leading-relaxed sm:px-5">
+                      Taksitler kartın {plan.statementDay}. gün kesimine göre
+                      dağıtıldı ve {plan.dueDay}. günde ödeniyor. Bir taksiti elle
+                      işaretlemeniz gerekmez — ekstre ödendiğinde o ekstredeki
+                      taksitler de kapanmış sayılır.
+                    </p>
                   </div>
                 ) : null}
               </li>
@@ -258,19 +283,20 @@ export function InstallmentsClient({
         )}
       </Panel>
 
-      {completed.length > 0 ? (
+      {finished.length > 0 ? (
         <Panel>
-          <PanelHeader title="Tamamlanan planlar" subtitle={`${completed.length} plan`} />
+          <PanelHeader title="Biten taksitler" subtitle={`${finished.length} alışveriş`} />
           <ul>
-            {completed.map((plan) => (
+            {finished.map((plan) => (
               <li
                 key={plan.id}
                 className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0 sm:px-5"
               >
                 <div className="min-w-0 flex-1">
                   <p className="muted truncate text-sm">{plan.description}</p>
-                  <p className="faint text-[11px]">
-                    {plan.cardName} · {plan.installmentCount} taksit tamamlandı
+                  <p className="para faint text-[11px]">
+                    {plan.cardName} · {plan.installmentCount} taksit ·{" "}
+                    {formatMoney(plan.totalAmountMinor, plan.currency)}
                   </p>
                 </div>
                 <Badge tone="gelir">bitti</Badge>
@@ -283,7 +309,7 @@ export function InstallmentsClient({
 
       <FormDialog
         title="Taksitli alışveriş"
-        description="Devam eden bir alışverişi girerken ödenmiş taksit sayısını da belirtin."
+        description="Alışveriş tarihini girin; hangi taksitin hangi ekstreye düşeceğini sistem hesaplar."
         action={savePlanAction}
         open={creating}
         onOpenChange={setCreating}
@@ -295,7 +321,7 @@ export function InstallmentsClient({
         <FormDialog
           key={editing.id}
           title={editing.description}
-          description="Takvim yeniden kurulacak; ödendi işaretleri sıfırlanır."
+          description="Takvim yeniden hesaplanacak."
           action={savePlanAction}
           open
           onOpenChange={(open) => !open && setEditing(null)}
@@ -308,15 +334,40 @@ export function InstallmentsClient({
   );
 }
 
+/**
+ * Plan formu. Alışveriş tarihi, tutar ve taksit sayısı girildikçe takvim
+ * canlı önizlenir — kartın kesim günü yanlışsa kullanıcı burada fark eder.
+ */
 function PlanFields({
   cards,
   categories,
   plan,
 }: {
-  cards: Option[];
+  cards: CardOption[];
   categories: Option[];
   plan?: PlanView;
 }) {
+  const [cardId, setCardId] = useState(String(plan?.cardId ?? cards[0]?.value ?? ""));
+  const [amount, setAmount] = useState(
+    plan ? (plan.totalAmountMinor / 100).toFixed(2).replace(".", ",") : "",
+  );
+  const [count, setCount] = useState(String(plan?.installmentCount ?? ""));
+  const [purchaseDate, setPurchaseDate] = useState(plan?.purchaseDate ?? todayISO());
+
+  const card = cards.find((c) => String(c.value) === cardId);
+  const totalMinor = parseMoneyToMinor(amount) ?? 0;
+  const n = Number(count);
+
+  const preview =
+    card && totalMinor > 0 && Number.isInteger(n) && n >= 1 && n <= 60
+      ? previewSchedule({
+          totalAmountMinor: totalMinor,
+          installmentCount: n,
+          purchaseDate,
+          cycle: { statementDay: card.statementDay, dueDay: card.dueDay },
+        })
+      : [];
+
   return (
     <>
       <TextField
@@ -324,58 +375,108 @@ function PlanFields({
         label="Ne aldınız?"
         required
         defaultValue={plan?.description}
-        placeholder="Örn. Buzdolabı"
+        placeholder="Örn. Sandalye"
       />
 
-      <SelectField
-        name="cardId"
+      {/* Bu alanlar kontrollü: yazdıkça aşağıdaki takvim önizlemesi güncellenir. */}
+      <Field
         label="Kart"
-        options={cards}
-        placeholder="Seçiniz"
         required
-        defaultValue={plan?.cardId}
-        hint="Taksitler bu kartın ekstre dönemlerine dağıtılır."
-      />
+        hint={
+          card
+            ? `Hesap kesim ${card.statementDay}. gün, son ödeme ${card.dueDay}. gün`
+            : undefined
+        }
+      >
+        <Select name="cardId" value={cardId} onChange={(e) => setCardId(e.target.value)}>
+          <option value="">Seçiniz</option>
+          {cards.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
 
       <FieldRow>
-        <MoneyField
-          name="totalAmount"
-          label="Toplam tutar"
-          required
-          defaultMinor={plan?.totalAmountMinor}
-        />
-        <NumberField
-          name="installmentCount"
-          label="Taksit sayısı"
-          min={1}
-          max={60}
-          required
-          defaultValue={plan?.installmentCount}
-          placeholder="12"
-        />
+        <Field label="Toplam tutar" required>
+          <Input
+            name="totalAmount"
+            inputMode="decimal"
+            className="tabular"
+            placeholder="0,00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </Field>
+        <Field label="Taksit sayısı" required>
+          <Input
+            name="installmentCount"
+            inputMode="numeric"
+            className="tabular"
+            placeholder="6"
+            value={count}
+            onChange={(e) => setCount(e.target.value)}
+          />
+        </Field>
       </FieldRow>
 
-      <FieldRow>
-        <DateField
+      <Field
+        label="Alışveriş tarihi"
+        required
+        hint="Kesim gününden sonraysa ilk taksit bir sonraki ekstreye düşer."
+      >
+        <Input
+          type="date"
           name="purchaseDate"
-          label="Alışveriş tarihi"
-          required
-          defaultValue={plan?.purchaseDate ?? todayISO()}
+          value={purchaseDate}
+          onChange={(e) => setPurchaseDate(e.target.value)}
         />
-        <NumberField
-          name="paidCount"
-          label="Ödenmiş taksit"
-          min={0}
-          defaultValue={plan?.paidCount ?? 0}
-          hint="Devam eden alışveriş için"
-        />
-      </FieldRow>
+      </Field>
+
+      <div className="surface-2 rounded-lg p-3">
+        <p className="mb-2 text-xs font-semibold">Takvim önizlemesi</p>
+        {preview.length === 0 ? (
+          <p className="faint text-[11px] leading-relaxed">
+            Kart, tutar ve taksit sayısını girin; hangi taksitin hangi ekstreye
+            düşeceğini burada göreceksiniz.
+          </p>
+        ) : (
+          <>
+            <ul className="space-y-1">
+              {preview.slice(0, 6).map((p) => (
+                <li
+                  key={p.seq}
+                  className="flex items-baseline justify-between gap-2 text-[11px]"
+                >
+                  <span className="muted">
+                    {p.seq}. taksit · {formatDateTR(p.statementDate)} kesimi
+                  </span>
+                  <span className="tabular shrink-0 font-medium">
+                    {formatDateTR(p.dueDate)} · {formatMoney(p.amountMinor)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {preview.length > 6 ? (
+              <p className="faint mt-1.5 text-[11px]">
+                … son taksit {formatDateTR(preview[preview.length - 1].dueDate)}{" "}
+                tarihinde ödenecek
+              </p>
+            ) : null}
+            <p className="faint mt-2 text-[11px] leading-relaxed">
+              Doğru görünmüyorsa kartın hesap kesim / son ödeme günü yanlış
+              girilmiş olabilir.
+            </p>
+          </>
+        )}
+      </div>
 
       <TextField
         name="merchantName"
         label="İşyeri"
         defaultValue={plan?.merchantName}
-        placeholder="Örn. Vestel"
+        placeholder="Örn. HepsiBurada"
       />
 
       <FieldRow>

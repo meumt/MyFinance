@@ -374,12 +374,12 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
       if (inst.dueDate < period.periodStart || inst.dueDate > period.periodEnd)
         continue;
 
-      /* Plan sisteme girilmeden önce ödenmiş taksit, kapanmış bir ekstreye
-         aittir; bugünkü borcun parçası değildir. */
-      if (inst.isPaid) {
-        const entryDate = input.planEntryDates?.get(inst.planId);
-        if (entryDate && inst.dueDate < entryDate) continue;
-      }
+      /* Sisteme girmeden önce vadesi dolmuş ekstredeki taksit çoktan
+         ödenmiştir; bugünkü borcun parçası değildir. Kesim tarihine değil
+         SON ÖDEME tarihine bakılır: 22'sinde kesilip 3'ünde ödenen bir
+         ekstre, ayın 25'inde sisteme girildiğinde henüz ödenmemiştir. */
+      const entryDate = input.planEntryDates?.get(inst.planId);
+      if (entryDate && period.dueDate < entryDate) continue;
 
       const amount = installmentInCardCurrency(inst.planId, inst.amountMinor);
       if (amount === null) continue;
@@ -458,8 +458,15 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
 
   /* Henüz kesilmemiş dönemlere düşen tüm taksitler. Vadesi bugün olan taksit
      de dahildir — o dönem henüz kapanmamıştır. */
+  /* Kalan taksit yükü: henüz kesilmemiş dönemlere düşenler. Kapanmış
+     ekstrelerdeki taksitler zaten dönem borcunun içinde. */
   const remainingInstallments = installments
-    .filter((i) => !i.isPaid && i.dueDate >= ref)
+    .filter((i) => {
+      const entryDate = input.planEntryDates?.get(i.planId);
+      const period = buildPeriod(monthKey(i.dueDate), cycle);
+      if (entryDate && period.dueDate < entryDate) return false;
+      return period.statementDate >= ref;
+    })
     .reduce(
       (sum, i) => sum + (installmentInCardCurrency(i.planId, i.amountMinor) ?? 0),
       0,

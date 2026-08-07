@@ -36,7 +36,6 @@ interface PlanInput {
   currency?: string;
   merchantId?: number | null;
   categoryId?: number | null;
-  paidCount?: number;
   notes?: string | null;
 }
 
@@ -60,11 +59,6 @@ async function createPlan(input: PlanInput): Promise<ActionState> {
     return { error: "Geçerli bir tutar girin." };
   }
 
-  const paidCount = Math.min(
-    Math.max(0, input.paidCount ?? 0),
-    input.installmentCount,
-  );
-
   const cycle = { statementDay: card.statementDay, dueDay: card.dueDay };
   const firstPeriod = periodForTransaction(input.purchaseDate, cycle);
   const amounts = splitMinor(input.totalAmountMinor, input.installmentCount);
@@ -80,9 +74,9 @@ async function createPlan(input: PlanInput): Promise<ActionState> {
       totalAmountMinor: input.totalAmountMinor,
       currency: input.currency ?? card.currency,
       installmentCount: input.installmentCount,
-      paidCount,
+      paidCount: 0,
       firstDueDate: firstPeriod.dueDate,
-      status: paidCount >= input.installmentCount ? "tamamlandi" : "aktif",
+      status: "aktif",
       notes: input.notes ?? null,
     })
     .returning({ id: installmentPlans.id });
@@ -100,7 +94,7 @@ async function createPlan(input: PlanInput): Promise<ActionState> {
       amountMinor,
       // Taksitin düştüğü ekstre dönemini kesim tarihiyle işaretliyoruz.
       dueDate: period.periodEnd,
-      isPaid: index < paidCount,
+      isPaid: false,
     };
   });
 
@@ -162,7 +156,6 @@ export async function savePlanAction(
       currency: str(form, "currency") || undefined,
       merchantId: merchant?.id ?? null,
       categoryId: id(form, "categoryId") ?? merchant?.defaultCategoryId ?? null,
-      paidCount: Math.round(optionalNum(form, "paidCount") ?? 0),
       notes: optionalStr(form, "notes"),
     });
   } catch (error) {
@@ -184,48 +177,5 @@ export async function deletePlanAction(
     return { success: "Taksit planı silindi." };
   } catch (error) {
     return toActionError(error, "Taksit planı silinemedi.");
-  }
-}
-
-/** Tek bir taksiti ödendi/ödenmedi olarak işaretler. */
-export async function toggleInstallmentAction(
-  _prev: ActionState,
-  form: FormData,
-): Promise<ActionState> {
-  try {
-    await requireUser();
-    const installmentId = id(form, "id");
-    if (!installmentId) return { error: "Taksit bulunamadı." };
-
-    const current = await db.query.installments.findFirst({
-      where: eq(installments.id, installmentId),
-    });
-    if (!current) return { error: "Taksit bulunamadı." };
-
-    await db
-      .update(installments)
-      .set({ isPaid: !current.isPaid })
-      .where(eq(installments.id, installmentId));
-
-    /* Plan durumunu ve ödenen adedi yeniden hesapla. */
-    const siblings = await db.query.installments.findMany({
-      where: eq(installments.planId, current.planId),
-    });
-    const paidCount = siblings.filter((i) =>
-      i.id === installmentId ? !current.isPaid : i.isPaid,
-    ).length;
-
-    await db
-      .update(installmentPlans)
-      .set({
-        paidCount,
-        status: paidCount >= siblings.length ? "tamamlandi" : "aktif",
-      })
-      .where(eq(installmentPlans.id, current.planId));
-
-    revalidateAll();
-    return { success: current.isPaid ? "Ödenmedi olarak işaretlendi." : "Ödendi olarak işaretlendi." };
-  } catch (error) {
-    return toActionError(error, "Taksit güncellenemedi.");
   }
 }

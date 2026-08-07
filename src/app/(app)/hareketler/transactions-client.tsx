@@ -315,13 +315,19 @@ export function TransactionsClient({
                             )}
                           />
 
-                          <button
-                            onClick={() => setEditing(tx)}
-                            className="focus-ring muted hover:bg-[var(--surface-2)] flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                            aria-label="Düzenle"
-                          >
-                            <Pencil size={14} />
-                          </button>
+                          {/* Negatif kimlik: taksitten türetilmiş satır.
+                              Kaydı yoktur, düzenlenemez — planından yönetilir. */}
+                          {tx.id > 0 ? (
+                            <button
+                              onClick={() => setEditing(tx)}
+                              className="focus-ring muted hover:bg-[var(--surface-2)] flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                              aria-label="Düzenle"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                          ) : (
+                            <span className="w-8 shrink-0" aria-hidden />
+                          )}
                         </li>
                       );
                     })}

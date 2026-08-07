@@ -2,6 +2,7 @@ import { flattenCategories } from "@/lib/analytics";
 import { categoryPath, loadSnapshot } from "@/lib/data";
 import { addMonthsToKey, formatMonthTR, monthKey } from "@/lib/dates";
 import { toTRYOrZero } from "@/lib/fx";
+import { describeInstallment } from "@/lib/installments";
 import { rowSignature } from "@/lib/parser";
 import { TransactionsClient, type TxView } from "./transactions-client";
 
@@ -71,6 +72,64 @@ export default async function TransactionsPage({
     };
   });
 
+  /* Vadesi gelmiş taksitler hareket listesinde kendiliğinden görünür.
+     Ayrı kayıt OLUŞTURULMAZ: taksitler zaten ekstre borcunun içinde, ikinci
+     kez yazsaydık borç iki katına çıkardı. Burada yalnızca gösterilirler. */
+  const installmentRows: TxView[] = [];
+  for (const plan of snap.plans) {
+    const card = snap.cardById.get(plan.cardId);
+    if (!card || card.statementDay == null || card.dueDay == null) continue;
+    if (source && sourceType === "kart" && plan.cardId !== sourceId) continue;
+    if (source && sourceType === "hesap") continue;
+    if (kind && kind !== "gider") continue;
+    if (category && plan.categoryId !== Number(category)) continue;
+
+    const planEntryDate = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Istanbul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(plan.createdAt));
+
+    const cat = plan.categoryId ? snap.categoryById.get(plan.categoryId) : undefined;
+
+    for (const row of snap.installments.filter((i) => i.planId === plan.id)) {
+      const s = describeInstallment(row, {
+        cycle: { statementDay: card.statementDay, dueDay: card.dueDay },
+        planEntryDate,
+        ref: snap.ref,
+      });
+      // Yalnızca ekstresi kesilmiş taksitler listelenir.
+      if (s.state === "gelecek") continue;
+      if (monthKey(s.statementDate) !== month) continue;
+
+      installmentRows.push({
+        id: -row.id, // negatif kimlik: düzenlenemez, türetilmiş satır
+        date: s.statementDate,
+        kind: "gider",
+        amountMinor: row.amountMinor,
+        currency: plan.currency,
+        accountId: null,
+        cardId: plan.cardId,
+        counterAccountId: null,
+        counterCardId: null,
+        categoryId: plan.categoryId,
+        merchantName: null,
+        description: plan.description,
+        note: null,
+        sourceName: card.name,
+        sourceColor: cat?.color ?? card.color,
+        categoryName: cat ? categoryPath(cat, snap.categoryById) : null,
+        title: `${plan.description} · ${s.seq}/${plan.installmentCount} taksit`,
+        isInstallment: true,
+      });
+    }
+  }
+
+  const allRows = [...transactions, ...installmentRows].sort(
+    (a, b) => b.date.localeCompare(a.date) || b.id - a.id,
+  );
+
   /* Ay toplamları — dövizli hareketler TL karşılığından toplanır. */
   const monthTotals = filtered.reduce(
     (acc, tx) => {
@@ -111,7 +170,7 @@ export default async function TransactionsPage({
 
   return (
     <TransactionsClient
-      transactions={transactions}
+      transactions={allRows}
       accounts={snap.accounts
         .filter((a) => a.isActive)
         .map((a) => ({ value: a.id, label: a.name }))}
