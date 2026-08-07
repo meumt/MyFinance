@@ -107,10 +107,44 @@ async function sendTelegram(
 
     if (res.ok) return { channel: "telegram", ok: true };
     const detail = await res.text().catch(() => "");
-    return { channel: "telegram", ok: false, error: `HTTP ${res.status} ${detail.slice(0, 120)}` };
+    return {
+      channel: "telegram",
+      ok: false,
+      error: telegramError(res.status, detail),
+    };
   } catch (error) {
     return { channel: "telegram", ok: false, error: errorText(error) };
   }
+}
+
+/**
+ * Telegram'ın hata metinleri kurulum hatasını söylemez.
+ * En sık karşılaşılanları ne yapılacağını söyleyen cümleye çevirir.
+ */
+function telegramError(status: number, body: string): string {
+  let description = "";
+  try {
+    description = (JSON.parse(body) as { description?: string }).description ?? "";
+  } catch {
+    description = body.slice(0, 120);
+  }
+  const d = description.toLowerCase();
+
+  /* Bot konuşmayı kendi başlatamaz: kullanıcı bota /start yazana kadar o
+     sohbet bot için yoktur, chat_id doğru olsa bile. */
+  if (d.includes("chat not found")) {
+    return "Sohbet bulunamadı. Telegram'da botu açıp Başlat'a basın (/start), sonra tekrar deneyin. Sohbet kimliğinizi doğrulamak için: api.telegram.org/bot<token>/getUpdates";
+  }
+  if (status === 401 || d.includes("unauthorized")) {
+    return "Bot token'ı geçersiz. BotFather'dan token'ı kopyalayıp ayarlara yeniden yapıştırın.";
+  }
+  if (d.includes("bot was blocked")) {
+    return "Botu engellemişsiniz. Telegram'da sohbeti açıp engeli kaldırın.";
+  }
+  if (d.includes("chat_id is empty") || d.includes("chat_id")) {
+    return "Sohbet kimliği geçersiz. Kişisel sohbet için sayı (örn. 771542908), grup için başında eksi olan sayı girilir.";
+  }
+  return `HTTP ${status} ${description.slice(0, 120)}`;
 }
 
 /** Telegram MarkdownV2 kaçış kuralları katıdır; tüm özel karakterler kaçırılır. */
