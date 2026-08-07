@@ -408,6 +408,105 @@ eq(overdrawn.balanceMinor, -12_000_00, "eksi bakiye");
 eq(overdrawn.overdraftUsedMinor, 12_000_00, "kullanılan ek hesap");
 eq(overdrawn.overdraftAvailableMinor, 38_000_00, "kalan ek hesap limiti");
 
+
+/* ───── Senaryo: taksit işlem gününe göre ekstreye düşer ───── */
+group("Kart defteri — taksit hangi ekstreye düşer");
+
+/**
+ * Kesim 22, son ödeme 3. 6 Temmuz'da 6 taksitli 30.000 TL alışveriş.
+ *
+ * Taksit karta İŞLENDİĞİ gün (her ayın 6'sı) ekstreye girer, ödemesi bir
+ * sonraki ayın 3'ünde yapılır. Dönem eşlemesi son ödeme tarihine göre
+ * yapılırsa her taksit bir ekstre geç yazılır ve kullanıcı bitmiş bir borcu
+ * fazladan bir ay taşır.
+ */
+function taksit(
+  planId: number,
+  postedDate: string,
+  dueDate: string,
+  amountMinor: number,
+): Installment {
+  return {
+    id: ++instId,
+    planId,
+    seq: instId,
+    amountMinor,
+    postedDate,
+    dueDate,
+    statementId: null,
+    isPaid: false,
+    transactionId: null,
+  };
+}
+
+const postedKart = makeCard({
+  id: 8,
+  statementDay: 22,
+  dueDay: 3,
+  creditLimitMinor: 60_000_00,
+  createdAt: Date.parse("2026-07-01T00:00:00Z"),
+});
+
+const postedTaksitler = [
+  taksit(8, "2026-07-06", "2026-08-03", 5_000_00),
+  taksit(8, "2026-08-06", "2026-09-03", 5_000_00),
+  taksit(8, "2026-09-06", "2026-10-03", 5_000_00),
+  taksit(8, "2026-10-06", "2026-11-03", 5_000_00),
+  taksit(8, "2026-11-06", "2026-12-03", 5_000_00),
+  taksit(8, "2026-12-06", "2027-01-03", 5_000_00),
+];
+
+const postedLedger = computeCardLedger({
+  card: postedKart,
+  transactions: [],
+  installments: postedTaksitler,
+  planEntryDates: new Map([[8, "2026-08-07"]]),
+  ref: "2026-08-07",
+});
+
+const postedPeriod = (key: string) =>
+  postedLedger.periods.find((p) => p.period.monthKey === key)!;
+
+eq(
+  postedPeriod("2026-07").installmentsMinor,
+  0,
+  "sisteme girmeden önce ödenen Temmuz ekstresindeki taksit sayılmaz",
+);
+eq(
+  postedPeriod("2026-08").installmentsMinor,
+  5_000_00,
+  "6 Ağustos'ta işlenen taksit 22 Ağustos ekstresine düşer",
+);
+eq(
+  postedPeriod("2026-12").installmentsMinor,
+  5_000_00,
+  "son taksit 22 Aralık ekstresinde",
+);
+eq(
+  postedPeriod("2027-01").installmentsMinor,
+  0,
+  "Ocak ekstresinde taksit kalmaz — bir ay fazla taşınmaz",
+);
+eq(
+  postedLedger.remainingInstallmentsMinor,
+  25_000_00,
+  "ödenmiş ilk taksit hariç beş taksit borç olarak durur",
+);
+
+/* postedDate yoksa (eski kayıt) davranış eskisi gibi dueDate'e düşer. */
+const eskiKayit = computeCardLedger({
+  card: postedKart,
+  transactions: [],
+  installments: postedTaksitler.map((i) => ({ ...i, postedDate: null })),
+  planEntryDates: new Map([[8, "2026-08-07"]]),
+  ref: "2026-08-07",
+});
+eq(
+  eskiKayit.periods.find((p) => p.period.monthKey === "2026-08")!.installmentsMinor,
+  5_000_00,
+  "postedDate yoksa dueDate'e düşülür",
+);
+
 /* ────────────────────────────── Sonuç ────────────────────────────── */
 console.log(
   failed === 0

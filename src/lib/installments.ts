@@ -59,10 +59,22 @@ export interface ScheduleContext {
 
 /**
  * Bir taksitin ait olduğu ekstre dönemini bulur.
- * Taksitin `dueDate` alanı zaten o dönemin kesim tarihidir.
+ *
+ * Kaynak, taksitin karta İŞLENDİĞİ gündür: 6 Temmuz'da işlenen taksit 22
+ * Temmuz ekstresine düşer ve 3 Ağustos'ta ödenir. `dueDate` o ödemenin
+ * günüdür ve bir sonraki ayın içindedir; dönem ondan türetilirse her taksit
+ * bir ekstre geç görünür.
+ *
+ * `postedDate` yalnızca eski kayıtlarda boştur; o durumda eski davranışa
+ * düşülür.
  */
-export function periodOfInstallment(dueDate: ISODate, cycle: CardCycle) {
-  return buildPeriod(monthKey(dueDate), cycle);
+export function periodOfInstallment(
+  installment: { postedDate?: ISODate | null; dueDate: ISODate },
+  cycle: CardCycle,
+) {
+  return installment.postedDate
+    ? periodForTransaction(installment.postedDate, cycle)
+    : buildPeriod(monthKey(installment.dueDate), cycle);
 }
 
 /**
@@ -74,11 +86,11 @@ export function periodOfInstallment(dueDate: ISODate, cycle: CardCycle) {
  * ödenen bir ekstre, ayın 25'inde sisteme girildiğinde henüz ödenmemiştir.
  */
 export function isSettledBeforeTracking(
-  dueDate: ISODate,
+  installment: { postedDate?: ISODate | null; dueDate: ISODate },
   cycle: CardCycle,
   planEntryDate: ISODate,
 ): boolean {
-  return periodOfInstallment(dueDate, cycle).dueDate < planEntryDate;
+  return periodOfInstallment(installment, cycle).dueDate < planEntryDate;
 }
 
 export function describeInstallment(
@@ -91,7 +103,7 @@ export function describeInstallment(
   const ref = ctx.ref ?? today();
   // İşlem tarihi kaynaktır; eski kayıtlarda yoksa ekstre tarihine düşülür.
   const postedDate = installment.postedDate ?? installment.dueDate;
-  const period = periodOfInstallment(installment.dueDate, ctx.cycle);
+  const period = periodOfInstallment(installment, ctx.cycle);
 
   let state: InstallmentState;
   if (period.dueDate < ctx.planEntryDate) {

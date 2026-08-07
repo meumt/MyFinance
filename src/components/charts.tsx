@@ -374,6 +374,104 @@ export function CashflowChart({
   );
 }
 
+/* ─────────────────────── Aylık plan: ay sonu bakiyesi ───────────────────── */
+
+export interface OutlookPoint {
+  month: string;
+  closingMinor: number;
+}
+
+/**
+ * Önümüzdeki ayların sonunda cepte ne kalacağı.
+ * Sıfır çizgisi ve ek hesap sınırı referans olarak durur: eğrinin nerede
+ * suyun altına indiği renge bakılmadan da okunur.
+ */
+export function OutlookChart({
+  data,
+  overdraftMinor = 0,
+}: {
+  data: OutlookPoint[];
+  overdraftMinor?: number;
+}) {
+  const chartData = data.map((d) => ({
+    month: d.month,
+    label: formatMonthShortTR(d.month),
+    balance: d.closingMinor / 100,
+  }));
+
+  const hasNegative = chartData.some((d) => d.balance < 0);
+
+  return (
+    <div className="para h-52 w-full sm:h-60">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+          <defs>
+            <linearGradient id="outlookFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.25} />
+              <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid {...GRID_STYLE} vertical={false} />
+          <XAxis
+            dataKey="label"
+            tick={AXIS_STYLE}
+            tickLine={false}
+            axisLine={false}
+            minTickGap={20}
+          />
+          <YAxis
+            tick={AXIS_STYLE}
+            tickLine={false}
+            axisLine={false}
+            width={52}
+            tickFormatter={(v: number) => shortMoney(v * 100)}
+          />
+          <Tooltip
+            content={({ active, payload }) => {
+              if (!active || !payload?.length) return null;
+              const p = payload[0].payload as (typeof chartData)[number];
+              return (
+                <TooltipCard
+                  title={formatMonthShortTR(p.month)}
+                  rows={[{ label: "Ay sonu bakiye", value: formatMoney(p.balance * 100) }]}
+                />
+              );
+            }}
+          />
+          <ReferenceLine
+            y={0}
+            stroke={hasNegative ? "var(--chart-gider)" : "var(--chart-gelir)"}
+            strokeWidth={2}
+          />
+          {overdraftMinor > 0 ? (
+            <ReferenceLine
+              y={-overdraftMinor / 100}
+              stroke="var(--chart-gider)"
+              strokeDasharray="4 4"
+              strokeWidth={1}
+              label={{
+                value: "ek hesap sınırı",
+                position: "insideBottomRight",
+                fontSize: 10,
+                fill: "var(--chart-gider)",
+              }}
+            />
+          ) : null}
+          <Area
+            type="monotone"
+            dataKey="balance"
+            stroke="var(--chart-1)"
+            strokeWidth={2}
+            fill="url(#outlookFill)"
+            dot={{ r: 2.5, strokeWidth: 0, fill: "var(--chart-1)" }}
+            activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--surface)" }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 /* ────────────────────────── Borç kapatma projeksiyonu ────────────────────── */
 
 export interface PayoffPoint {

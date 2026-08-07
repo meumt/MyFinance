@@ -16,11 +16,14 @@ export function PayoffControls({
   expenseMinor,
   extraMinor,
   strategy,
+  /** Varsayımlar nereden geldi: geçmiş ortalaması mı, tanımlı düzenli kalemler mi. */
+  source = "gecmis",
 }: {
   incomeMinor: number;
   expenseMinor: number;
   extraMinor: number;
   strategy: string;
+  source?: "gecmis" | "plan";
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -48,7 +51,14 @@ export function PayoffControls({
   return (
     <div className="space-y-3 border-b px-4 py-3.5 sm:px-5">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Field label="Aylık gelir" hint="son 3 ayın ortalaması">
+        <Field
+          label="Aylık gelir"
+          hint={
+            source === "plan"
+              ? "düzenli gelirlerinden"
+              : "son 3 ayın ortalaması"
+          }
+        >
           <Input
             value={income}
             onChange={(e) => setIncome(e.target.value)}
@@ -56,7 +66,14 @@ export function PayoffControls({
             className="tabular"
           />
         </Field>
-        <Field label="Aylık gider" hint="borç ödemeleri hariç">
+        <Field
+          label="Aylık gider"
+          hint={
+            source === "plan"
+              ? "sabit giderler + yaşam gideri"
+              : "borç ödemeleri hariç"
+          }
+        >
           <Input
             value={expense}
             onChange={(e) => setExpense(e.target.value)}

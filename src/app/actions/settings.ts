@@ -46,6 +46,7 @@ export async function saveSettingsAction(
           Math.max(10, Math.round(num(form, "cardUtilizationWarnPercent", 90))),
         ),
         lowBalanceThresholdMinor: money(form, "lowBalanceThreshold") ?? 0,
+        livingCostMinor: money(form, "livingCost") ?? current.livingCostMinor,
         cardMonthlyRateBps: Math.round((optionalNum(form, "cardMonthlyRate") ?? 4.25) * 100),
         overdraftDefaultAnnualRateBps: Math.round(
           (optionalNum(form, "overdraftDefaultAnnualRate") ?? 60) * 100,
@@ -91,6 +92,29 @@ export async function saveSettingsAction(
     return { success: "Ayarlar kaydedildi." };
   } catch (error) {
     return toActionError(error, "Ayarlar kaydedilemedi.");
+  }
+}
+
+/**
+ * Aylık yaşam gideri varsayımını tek başına kaydeder.
+ * Plan ekranından girilebilsin diye ayrı bir eylem: kullanıcı ayarlar
+ * sayfasına gitmeden tahminini düzeltip planın nasıl değiştiğini görür.
+ */
+export async function saveLivingCostAction(
+  _prev: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  try {
+    await requireUser();
+    const value = money(form, "livingCost");
+    if (value == null || value < 0) {
+      return { error: "Geçerli bir tutar girin." };
+    }
+    await saveSettings({ livingCostMinor: value });
+    revalidateAll();
+    return { success: "Aylık yaşam gideri kaydedildi." };
+  } catch (error) {
+    return toActionError(error, "Kaydedilemedi.");
   }
 }
 

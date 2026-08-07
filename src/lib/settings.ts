@@ -24,6 +24,12 @@ export interface AppSettings {
   /** Ek hesap için varsayılan yıllık faiz (hesaba özel oran girilmemişse). */
   overdraftDefaultAnnualRateBps: number;
 
+  /**
+   * Bilinen ödemeler dışında her ay giden tahmini tutar (market, ulaşım,
+   * yemek…). İleriye dönük plan bu varsayım olmadan olduğundan iyimser çıkar.
+   */
+  livingCostMinor: number;
+
   ntfyEnabled: boolean;
   ntfyServer: string;
   ntfyTopic: string;
@@ -58,6 +64,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   cardMonthlyRateBps: 425, // %4,25 / ay
   overdraftDefaultAnnualRateBps: 6000, // %60 / yıl
+  livingCostMinor: 0,
 
   ntfyEnabled: false,
   ntfyServer: "https://ntfy.sh",

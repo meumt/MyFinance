@@ -7,6 +7,7 @@ import {
   DEFAULT_MINIMUM_POLICY,
   deriveStatementStatus,
   minimumPaymentMinor,
+  periodForTransaction,
   type MinimumPaymentPolicy,
   type StatementPeriod,
   type StatementStatus,
@@ -282,10 +283,15 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
   const cardCreatedMonth = monthKey(
     new Date(card.createdAt).toISOString().slice(0, 10),
   );
+  /* Taksitin karta işlendiği gün kaynaktır; `dueDate` o taksitin düştüğü
+     ekstrenin SON ÖDEME tarihidir ve bir sonraki döneme aittir. Aralık
+     kurulurken işlem günü kullanılmazsa ilk taksitin dönemi dışarıda kalır. */
+  const postedOf = (i: Installment): ISODate => i.postedDate ?? i.dueDate;
+
   const activityMonths = [
     cardCreatedMonth,
     ...transactions.map((t) => monthKey(t.date)),
-    ...installments.map((i) => monthKey(i.dueDate)),
+    ...installments.map((i) => monthKey(postedOf(i))),
   ];
   const startMonth = activityMonths.reduce((a, b) => (a < b ? a : b));
   const lastInstallmentMonth = installments.reduce(
@@ -371,8 +377,12 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
 
     let installmentSum = 0;
     for (const inst of installments) {
-      if (inst.dueDate < period.periodStart || inst.dueDate > period.periodEnd)
-        continue;
+      /* Taksit, karta İŞLENDİĞİ gün hangi dönemin içindeyse o ekstreye
+         düşer. Son ödeme tarihine bakılsaydı her taksit bir ekstre geç
+         yazılırdı: 6 Temmuz'da işlenen taksit 22 Temmuz ekstresine girer,
+         3 Ağustos'ta ödenir. */
+      const posted = postedOf(inst);
+      if (posted < period.periodStart || posted > period.periodEnd) continue;
 
       /* Sisteme girmeden önce vadesi dolmuş ekstredeki taksit çoktan
          ödenmiştir; bugünkü borcun parçası değildir. Kesim tarihine değil
@@ -463,7 +473,9 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
   const remainingInstallments = installments
     .filter((i) => {
       const entryDate = input.planEntryDates?.get(i.planId);
-      const period = buildPeriod(monthKey(i.dueDate), cycle);
+      // Dönem, taksitin karta işlendiği günden bulunur; `dueDate` bir sonraki
+      // dönemin ayına düşer ve taksiti bir ekstre ileri kaydırır.
+      const period = periodForTransaction(postedOf(i), cycle);
       if (entryDate && period.dueDate < entryDate) return false;
       return period.statementDate >= ref;
     })
