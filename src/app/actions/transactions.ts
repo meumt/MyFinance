@@ -13,6 +13,7 @@ import {
   id,
   money,
   optionalStr,
+  resolveFxRate,
   resolveMerchant,
   revalidateAll,
   str,
@@ -75,11 +76,16 @@ export async function saveTransactionAction(
     const categoryId = id(form, "categoryId");
     const merchant = await resolveMerchant(merchantName, categoryId);
 
+    const txDate = date(form, "date");
+    const txCurrency = str(form, "currency") || "TRY";
+
     const values = {
-      date: date(form, "date"),
+      date: txDate,
       kind,
       amountMinor: Math.abs(amountMinor),
-      currency: str(form, "currency") || "TRY",
+      currency: txCurrency,
+      // İşlem günü kuru hareketle birlikte saklanır.
+      fxRateMicro: await resolveFxRate(txCurrency, txDate),
       accountId,
       cardId,
       counterAccountId: kind === "transfer" ? counterAccountId : null,
@@ -188,11 +194,14 @@ export async function quickAddAction(
       });
     }
 
+    const quickCurrency = str(form, "currency") || "TRY";
+
     await db.insert(transactions).values({
       date: parsed.date,
       kind: parsed.kind,
       amountMinor: parsed.amountMinor,
-      currency: str(form, "currency") || "TRY",
+      currency: quickCurrency,
+      fxRateMicro: await resolveFxRate(quickCurrency, parsed.date),
       accountId: sourceType === "hesap" ? sourceId : null,
       cardId: sourceType === "kart" ? sourceId : null,
       categoryId: explicitCategoryId ?? merchant?.defaultCategoryId ?? null,
@@ -267,6 +276,7 @@ export async function bulkImportAction(
         kind: row.kind,
         amountMinor: Math.abs(row.amountMinor),
         currency,
+        fxRateMicro: await resolveFxRate(currency, row.date),
         accountId: sourceType === "hesap" ? sourceId : null,
         cardId: sourceType === "kart" ? sourceId : null,
         categoryId: row.categoryId ?? merchant?.defaultCategoryId ?? null,

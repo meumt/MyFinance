@@ -138,6 +138,7 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
         account,
         txRows,
         latestSnapshotByAccount.get(account.id) ?? null,
+        rates,
       ),
     );
   }
@@ -155,6 +156,11 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
     planRows.map((plan) => [plan.id, msToISODate(plan.createdAt)]),
   );
 
+  /* Taksit planı kartın para biriminden farklı olabilir (dövizli alışveriş). */
+  const planCurrencies = new Map<number, string>(
+    planRows.map((plan) => [plan.id, plan.currency]),
+  );
+
   const ledgers = new Map<number, CardLedger>();
   for (const card of cardRows) {
     const planIds = planIdsByCard.get(card.id) ?? new Set<number>();
@@ -167,6 +173,8 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
         ),
         installments: installmentRows.filter((i) => planIds.has(i.planId)),
         planEntryDates,
+        planCurrencies,
+        rates,
         policy: settings.minimumPolicy,
         ref,
       }),

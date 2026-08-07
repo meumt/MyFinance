@@ -56,6 +56,7 @@ export default async function CardsPage() {
         virtualCards: snap.cards
           .filter((c) => c.parentCardId === card.id)
           .map((c) => ({ id: c.id, name: c.name, lastFour: c.lastFour })),
+        missingRates: ledger?.missingRates ?? { currencies: [], count: 0 },
       };
     })
     .sort(

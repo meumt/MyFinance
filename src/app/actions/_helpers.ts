@@ -139,6 +139,34 @@ export async function resolveMerchant(
   };
 }
 
+/* ──────────────────────────── Döviz kuru damgası ───────────────────────── */
+
+/**
+ * Dövizli bir hareket kaydedilirken o günün kurunu bulur ve hareketin üzerine
+ * damgalanmak üzere döner. Geçmiş bir harcamanın bugünkü kurla yeniden
+ * değerlenmesi yanlış olacağı için kur hareketle birlikte saklanır.
+ *
+ * Kur bulunamazsa TCMB'den bir kez çekmeyi dener; yine bulunamazsa null döner
+ * ve arayüz kullanıcıyı elle kur girmeye yönlendirir.
+ */
+export async function resolveFxRate(
+  currency: string,
+  date: ISODate,
+): Promise<number | null> {
+  if (currency === "TRY") return null;
+
+  const { getRate, syncTcmbRates } = await import("@/lib/fx");
+
+  const existing = await getRate(currency, date);
+  if (existing) return existing;
+
+  // Altın/gümüş TCMB'de yayınlanmıyor; boşuna ağ isteği yapma.
+  if (currency === "XAU" || currency === "XAG") return null;
+
+  await syncTcmbRates().catch(() => 0);
+  return getRate(currency, date);
+}
+
 /* ─────────────────────────── Önbellek tazeleme ─────────────────────────── */
 
 /**

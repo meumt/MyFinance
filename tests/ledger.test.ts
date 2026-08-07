@@ -6,6 +6,7 @@
  * taksitin iki kez sayılması.
  */
 import type { Card, Installment, Transaction } from "../src/db/schema";
+import type { RateMap } from "../src/lib/convert";
 import { computeAccountBalance, computeCardLedger } from "../src/lib/ledger";
 
 let failed = 0;
@@ -280,6 +281,71 @@ const openingLedger = computeCardLedger({
 });
 
 eq(openingLedger.currentDueMinor, 5_000_00, "devreden borç ilk dönemden itibaren taşınır");
+
+/* ────────────── Senaryo: dövizli abonelik TL kartta ────────────── */
+group("Kart defteri — döviz çevrimi");
+
+/**
+ * 14,59 USD'lik bir abonelik TL kartla ödeniyor. Kur çevrilmezse ekstreye
+ * 14,59 TL yazılır — kırk kat hatalı.
+ */
+const usdRates: RateMap = new Map([
+  ["TRY", 1_000_000],
+  ["USD", 42_150_000], // 1 USD = 42,15 TL
+]);
+
+const dovizLedger = computeCardLedger({
+  card: makeCard({ id: 6, statementDay: 15, dueDay: 25, creditLimitMinor: 50_000_00 }),
+  transactions: [
+    tx({ date: "2026-08-02", cardId: 6, amountMinor: 14_59, currency: "USD" }),
+  ],
+  installments: [],
+  rates: usdRates,
+  ref: REF,
+});
+
+eq(
+  dovizLedger.openPeriodSpendMinor,
+  Math.round((14_59 * 42_150_000) / 1_000_000),
+  "14,59 USD kartın TL karşılığına çevrilir (≈615 TL)",
+);
+eq(dovizLedger.openPeriodSpendMinor, 614_97, "14,59 × 42,15 = 614,97 TL");
+eq(dovizLedger.missingRates.count, 0, "kur bilindiği için eksik yok");
+
+/* İşlem günü kuru hareketin üzerinde saklıysa güncel kur yerine o kullanılır. */
+const sabitKurLedger = computeCardLedger({
+  card: makeCard({ id: 7, statementDay: 15, dueDay: 25 }),
+  transactions: [
+    tx({
+      date: "2026-08-02",
+      cardId: 7,
+      amountMinor: 14_59,
+      currency: "USD",
+      fxRateMicro: 30_000_000, // işlem günü 1 USD = 30 TL idi
+    }),
+  ],
+  installments: [],
+  rates: usdRates,
+  ref: REF,
+});
+eq(
+  sabitKurLedger.openPeriodSpendMinor,
+  437_70,
+  "geçmiş harcama bugünkü kurla değil, işlem günü kuruyla değerlenir",
+);
+
+/* Kur hiç bilinmiyorsa tutar borca katılmaz ve kullanıcıya bildirilir. */
+const kursuzLedger = computeCardLedger({
+  card: makeCard({ id: 8, statementDay: 15, dueDay: 25 }),
+  transactions: [
+    tx({ date: "2026-08-02", cardId: 8, amountMinor: 14_59, currency: "USD" }),
+  ],
+  installments: [],
+  rates: new Map([["TRY", 1_000_000]]),
+  ref: REF,
+});
+eq(kursuzLedger.openPeriodSpendMinor, 0, "kuru bilinmeyen tutar borca yazılmaz");
+eq(kursuzLedger.missingRates, { currencies: ["USD"], count: 1 }, "eksik kur bildirilir");
 
 /* ───────────────────────── Hesap bakiyesi ───────────────────────── */
 group("Hesap bakiyesi");

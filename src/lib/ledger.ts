@@ -1,4 +1,5 @@
 import type { Account, Card, Installment, Transaction } from "@/db/schema";
+import { convert, MissingRateTracker, type RateMap } from "./convert";
 import { addMonthsToKey, ISODate, monthKey, today } from "./dates";
 import {
   buildPeriod,
@@ -21,9 +22,16 @@ import {
 /**
  * Bir hareketin belirli bir HESAP bakiyesine etkisi (kuruş, işaretli).
  * Tutarlar veritabanında hep pozitiftir; yönü `kind` belirler.
+ *
+ * `amountOverride` verilirse hareketin kendi tutarı yerine o kullanılır —
+ * hesabın para birimine çevrilmiş tutarı geçirmek için.
  */
-export function accountDelta(tx: Transaction, accountId: number): number {
-  const amt = tx.amountMinor;
+export function accountDelta(
+  tx: Transaction,
+  accountId: number,
+  amountOverride?: number,
+): number {
+  const amt = amountOverride ?? tx.amountMinor;
 
   if (tx.kind === "transfer") {
     if (tx.accountId === accountId) return -amt; // gönderen
@@ -48,8 +56,12 @@ export function accountDelta(tx: Transaction, accountId: number): number {
 }
 
 /** Bir hareketin KART borcuna etkisi (kuruş, pozitif = borç artışı). */
-export function cardDebtDelta(tx: Transaction, cardId: number): number {
-  const amt = tx.amountMinor;
+export function cardDebtDelta(
+  tx: Transaction,
+  cardId: number,
+  amountOverride?: number,
+): number {
+  const amt = amountOverride ?? tx.amountMinor;
 
   // Kart ödemesi borcu azaltır; ödenen kart counterCardId'dir.
   if (tx.kind === "kart_odeme" && tx.counterCardId === cardId) return -amt;
@@ -83,6 +95,8 @@ export interface AccountBalance {
   spendableMinor: number;
   /** Hesaplamanın dayandığı taban (son mutabakat ya da açılış). */
   baseDate: ISODate;
+  /** Kuru bilinmediği için bakiyeye katılamayan hareketler. */
+  missingRates: { currencies: string[]; count: number };
 }
 
 export interface BalanceBase {
@@ -98,17 +112,29 @@ export function computeAccountBalance(
   account: Account,
   transactions: Transaction[],
   latestSnapshot?: BalanceBase | null,
+  rates?: RateMap,
 ): AccountBalance {
   const base =
     latestSnapshot && latestSnapshot.date >= account.openingDate
       ? latestSnapshot
       : { date: account.openingDate, balanceMinor: account.openingBalanceMinor };
 
+  const missing = new MissingRateTracker();
   let balance = base.balanceMinor;
+
   for (const tx of transactions) {
     // Mutabakat "gün sonu" anlamına gelir; o günün hareketleri zaten içindedir.
     if (tx.date <= base.date) continue;
-    balance += accountDelta(tx, account.id);
+
+    /* Dövizli bir hareket hesabın para birimine çevrilmeden eklenemez:
+       14,59 USD'yi 14,59 TL saymak bakiyeyi kırk katı yanlış gösterir. */
+    const amount = convertAmount(tx, account.currency, rates);
+    if (amount === null) {
+      missing.record(tx.currency);
+      continue;
+    }
+
+    balance += accountDelta(tx, account.id, amount);
   }
 
   const overdraftUsed = balance < 0 ? -balance : 0;
@@ -124,7 +150,29 @@ export function computeAccountBalance(
     overdraftAvailableMinor: overdraftAvailable,
     spendableMinor: balance + overdraftAvailable,
     baseDate: base.date,
+    missingRates: missing.summary(),
   };
+}
+
+/**
+ * Hareketi hedef para birimine çevirir. İşlem günü kuru hareketin üzerinde
+ * saklanıyorsa o kullanılır; geçmiş bir harcamayı bugünkü kurla yeniden
+ * değerlemek yanlış olur. Kur hiç bilinmiyorsa null döner.
+ */
+function convertAmount(
+  tx: Transaction,
+  targetCurrency: string,
+  rates?: RateMap,
+): number | null {
+  if (tx.currency === targetCurrency) return tx.amountMinor;
+  if (!rates) return null;
+  return convert(
+    tx.amountMinor,
+    tx.currency,
+    targetCurrency,
+    rates,
+    tx.fxRateMicro,
+  ).amountMinor;
 }
 
 /* ────────────────────────────── Kart defteri ────────────────────────────── */
@@ -171,6 +219,8 @@ export interface CardLedger {
   availableLimitMinor: number;
   utilizationRatio: number;
   nextDueDate: ISODate | null;
+  /** Kuru bilinmediği için borca katılamayan hareket/taksitler. */
+  missingRates: { currencies: string[]; count: number };
 }
 
 export interface CardLedgerInput {
@@ -188,6 +238,10 @@ export interface CardLedgerInput {
    * dönem borcuna yazılır ve geçmişte olmayan bir gecikme görünür.
    */
   planEntryDates?: Map<number, ISODate>;
+  /** Taksit planlarının para birimi (plan id → kod). Kart birimiyle aynı olmayabilir. */
+  planCurrencies?: Map<number, string>;
+  /** Döviz kurları. Verilmezse kartın birimi dışındaki hareketler sayılamaz. */
+  rates?: RateMap;
   policy?: MinimumPaymentPolicy;
   ref?: ISODate;
   /** Kaç dönem ileri hesaplansın. */
@@ -256,9 +310,36 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
      Gecikmiş bir ekstreyi bugün ödeyebilmek gerekir; ödemeyi doğrudan
      içinde bulunulan döneme yazmak, kapanmamış eski dönemi sonsuza kadar
      "gecikmiş" bırakırdı. */
+  const missing = new MissingRateTracker();
+
+  /** Hareketi kartın para birimine çevirir; çevrilemeyeni işaretler. */
+  const inCardCurrency = (tx: Transaction): number | null => {
+    const amount = convertAmount(tx, card.currency, input.rates);
+    if (amount === null) missing.record(tx.currency);
+    return amount;
+  };
+
+  /** Taksit tutarını kartın para birimine çevirir. */
+  const installmentInCardCurrency = (
+    planId: number,
+    amountMinor: number,
+  ): number | null => {
+    const planCurrency = input.planCurrencies?.get(planId) ?? card.currency;
+    if (planCurrency === card.currency) return amountMinor;
+    if (!input.rates) {
+      missing.record(planCurrency);
+      return null;
+    }
+    const result = convert(amountMinor, planCurrency, card.currency, input.rates);
+    if (result.amountMinor === null) missing.record(result.missingCurrency);
+    return result.amountMinor;
+  };
+
   const payments = transactions
     .filter((t) => t.kind === "kart_odeme" && t.counterCardId === card.id)
-    .sort((a, b) => a.date.localeCompare(b.date));
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((t) => ({ date: t.date, amountMinor: inCardCurrency(t) }))
+    .filter((p): p is { date: ISODate; amountMinor: number } => p.amountMinor !== null);
 
   let paymentIndex = 0;
   // Henüz bir ekstreye mahsup edilmemiş ödeme bakiyesi (fazla ödeme dahil).
@@ -279,10 +360,13 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
       if (tx.installmentPlanId != null) continue;
       if (tx.date < period.periodStart || tx.date > period.periodEnd) continue;
 
-      if (tx.kind === "gider") charges += tx.amountMinor;
-      else if (tx.kind === "faiz" || tx.kind === "ucret") fees += tx.amountMinor;
-      else if (tx.kind === "iade" || tx.kind === "gelir")
-        refunds += tx.amountMinor;
+      // Dövizli harcama kartın para birimine çevrilmeden ekstreye yazılamaz.
+      const amount = inCardCurrency(tx);
+      if (amount === null) continue;
+
+      if (tx.kind === "gider") charges += amount;
+      else if (tx.kind === "faiz" || tx.kind === "ucret") fees += amount;
+      else if (tx.kind === "iade" || tx.kind === "gelir") refunds += amount;
     }
 
     let installmentSum = 0;
@@ -297,7 +381,9 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
         if (entryDate && inst.dueDate < entryDate) continue;
       }
 
-      installmentSum += inst.amountMinor;
+      const amount = installmentInCardCurrency(inst.planId, inst.amountMinor);
+      if (amount === null) continue;
+      installmentSum += amount;
     }
 
     const totalDue = carry + charges + installmentSum + fees - refunds;
@@ -374,7 +460,10 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
      de dahildir — o dönem henüz kapanmamıştır. */
   const remainingInstallments = installments
     .filter((i) => !i.isPaid && i.dueDate >= ref)
-    .reduce((sum, i) => sum + i.amountMinor, 0);
+    .reduce(
+      (sum, i) => sum + (installmentInCardCurrency(i.planId, i.amountMinor) ?? 0),
+      0,
+    );
 
   const totalDebt = currentDue + openSpend + remainingInstallments;
   const available = Math.max(0, card.creditLimitMinor - totalDebt);
@@ -395,6 +484,7 @@ export function computeCardLedger(input: CardLedgerInput): CardLedger {
       currentStatement && currentStatement.carryOutMinor > 0
         ? currentStatement.period.dueDate
         : (openPeriod?.period.dueDate ?? null),
+    missingRates: missing.summary(),
   };
 }
 
@@ -411,6 +501,7 @@ function emptyLedger(card: Card): CardLedger {
     availableLimitMinor: card.creditLimitMinor,
     utilizationRatio: 0,
     nextDueDate: null,
+    missingRates: { currencies: [], count: 0 },
   };
 }
 

@@ -62,6 +62,8 @@ export interface CardView {
   nextDueDate: string | null;
   minimumDueMinor: number;
   virtualCards: Array<{ id: number; name: string; lastFour: string | null }>;
+  /** Kuru bilinmediği için borca katılamayan hareketler. */
+  missingRates: { currencies: string[]; count: number };
 }
 
 const CARD_TYPES: Option[] = [
@@ -250,6 +252,20 @@ export function CardsClient({
                     <span className="tabular font-medium">
                       {formatMoney(card.remainingInstallmentsMinor, card.currency)}
                     </span>
+                  </p>
+                ) : null}
+
+                {card.missingRates.count > 0 ? (
+                  <p className="bg-uyari/10 text-uyari mt-2 rounded-lg px-2.5 py-1.5 text-[11px] leading-relaxed">
+                    {card.missingRates.count} hareket{" "}
+                    {card.missingRates.currencies.join(", ")} cinsinden ve kuru
+                    bilinmiyor — borç hesabına katılmadı.{" "}
+                    <Link
+                      href="/ayarlar"
+                      className="font-medium underline underline-offset-2"
+                    >
+                      Kur girin
+                    </Link>
                   </p>
                 ) : null}
 
