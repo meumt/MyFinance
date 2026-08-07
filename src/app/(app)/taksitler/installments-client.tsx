@@ -233,6 +233,7 @@ export function InstallmentsClient({
                         <tr className="faint border-b text-left">
                           <th className="px-4 py-2 font-medium sm:px-5">Taksit</th>
                           <th className="px-2 py-2 text-right font-medium">Tutar</th>
+                          <th className="px-2 py-2 font-medium">Karta işlendiği gün</th>
                           <th className="px-2 py-2 font-medium">Hangi ekstrede</th>
                           <th className="px-2 py-2 font-medium">Ne zaman ödenir</th>
                           <th className="px-4 py-2 font-medium sm:px-5">Durum</th>
@@ -256,6 +257,7 @@ export function InstallmentsClient({
                                 showSymbol: false,
                               })}
                             </td>
+                            <td className="px-2 py-2">{formatDateTR(s.postedDate)}</td>
                             <td className="muted px-2 py-2">
                               {formatDateTR(s.statementDate)} kesimi
                             </td>
@@ -270,9 +272,10 @@ export function InstallmentsClient({
                       </tbody>
                     </table>
                     <p className="faint px-4 py-2.5 text-[11px] leading-relaxed sm:px-5">
-                      Taksitler kartın {plan.statementDay}. gün kesimine göre
-                      dağıtıldı ve {plan.dueDay}. günde ödeniyor. Bir taksiti elle
-                      işaretlemeniz gerekmez — ekstre ödendiğinde o ekstredeki
+                      Taksitler alışveriş gününün her ayki karşılığında karta
+                      işleniyor; o işlem hangi ekstre dönemine denk gelirse orada
+                      faturalanıyor (kesim {plan.statementDay}, ödeme {plan.dueDay}).
+                      Elle işaretlemeniz gerekmez — ekstre ödendiğinde içindeki
                       taksitler de kapanmış sayılır.
                     </p>
                   </div>
@@ -450,7 +453,7 @@ function PlanFields({
                   className="flex items-baseline justify-between gap-2 text-[11px]"
                 >
                   <span className="muted">
-                    {p.seq}. taksit · {formatDateTR(p.statementDate)} kesimi
+                    {p.seq}. taksit · {formatDateTR(p.postedDate)} işlenir
                   </span>
                   <span className="tabular shrink-0 font-medium">
                     {formatDateTR(p.dueDate)} · {formatMoney(p.amountMinor)}

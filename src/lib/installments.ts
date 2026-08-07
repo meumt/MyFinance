@@ -1,6 +1,6 @@
 import type { Installment } from "@/db/schema";
-import { type ISODate, monthKey, today } from "./dates";
-import { buildPeriod, type CardCycle } from "./statements";
+import { addMonthsKeepingDay, type ISODate, monthKey, today } from "./dates";
+import { buildPeriod, type CardCycle, periodForTransaction } from "./statements";
 
 /**
  * Taksitin yaşam döngüsü tamamen tarihlerden türetilir.
@@ -37,6 +37,8 @@ export interface InstallmentSchedule {
   id: number;
   seq: number;
   amountMinor: number;
+  /** Taksitin karta işlendiği gün — alışveriş gününün o ayki karşılığı. */
+  postedDate: ISODate;
   /** Bu taksitin düştüğü ekstrenin kesim tarihi. */
   statementDate: ISODate;
   /** O ekstrenin son ödeme tarihi — taksitin gerçekte ödendiği gün. */
@@ -80,10 +82,15 @@ export function isSettledBeforeTracking(
 }
 
 export function describeInstallment(
-  installment: Pick<Installment, "id" | "seq" | "amountMinor" | "dueDate">,
+  installment: Pick<
+    Installment,
+    "id" | "seq" | "amountMinor" | "dueDate" | "postedDate"
+  >,
   ctx: ScheduleContext,
 ): InstallmentSchedule {
   const ref = ctx.ref ?? today();
+  // İşlem tarihi kaynaktır; eski kayıtlarda yoksa ekstre tarihine düşülür.
+  const postedDate = installment.postedDate ?? installment.dueDate;
   const period = periodOfInstallment(installment.dueDate, ctx.cycle);
 
   let state: InstallmentState;
@@ -102,6 +109,7 @@ export function describeInstallment(
     id: installment.id,
     seq: installment.seq,
     amountMinor: installment.amountMinor,
+    postedDate,
     statementDate: period.statementDate,
     dueDate: period.dueDate,
     state,
@@ -118,32 +126,29 @@ export function previewSchedule(args: {
   installmentCount: number;
   purchaseDate: ISODate;
   cycle: CardCycle;
-}): Array<{ seq: number; amountMinor: number; statementDate: ISODate; dueDate: ISODate }> {
+}): Array<{
+  seq: number;
+  amountMinor: number;
+  postedDate: ISODate;
+  statementDate: ISODate;
+  dueDate: ISODate;
+}> {
   const { totalAmountMinor, installmentCount, purchaseDate, cycle } = args;
   if (installmentCount < 1 || totalAmountMinor <= 0) return [];
 
   const base = Math.floor(totalAmountMinor / installmentCount);
   const remainder = totalAmountMinor - base * installmentCount;
 
-  // Alışveriş kesim gününden sonraysa ilk taksit bir sonraki ekstreye düşer.
-  const m = monthKey(purchaseDate);
-  const thisMonth = buildPeriod(m, cycle);
-  const startMonth =
-    purchaseDate <= thisMonth.statementDate ? m : shiftMonth(m, 1);
-
   return Array.from({ length: installmentCount }, (_, i) => {
-    const period = buildPeriod(shiftMonth(startMonth, i), cycle);
+    // Taksit alışveriş gününün o ayki karşılığında işler.
+    const postedDate = addMonthsKeepingDay(purchaseDate, i);
+    const period = periodForTransaction(postedDate, cycle);
     return {
       seq: i + 1,
       amountMinor: base + (i < remainder ? 1 : 0),
+      postedDate,
       statementDate: period.statementDate,
       dueDate: period.dueDate,
     };
   });
-}
-
-function shiftMonth(key: string, months: number): string {
-  const [y, m] = key.split("-").map(Number);
-  const total = y * 12 + (m - 1) + months;
-  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
 }

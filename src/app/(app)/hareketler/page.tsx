@@ -101,11 +101,12 @@ export default async function TransactionsPage({
       });
       // Yalnızca ekstresi kesilmiş taksitler listelenir.
       if (s.state === "gelecek") continue;
-      if (monthKey(s.statementDate) !== month) continue;
+      // Hareket listesinde taksit, karta işlendiği gün görünür.
+      if (monthKey(s.postedDate) !== month) continue;
 
       installmentRows.push({
         id: -row.id, // negatif kimlik: düzenlenemez, türetilmiş satır
-        date: s.statementDate,
+        date: s.postedDate,
         kind: "gider",
         amountMinor: row.amountMinor,
         currency: plan.currency,

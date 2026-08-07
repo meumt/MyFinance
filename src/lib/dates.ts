@@ -84,6 +84,19 @@ export function clampDayToMonth(year: number, month1to12: number, day: number): 
   return Math.min(Math.max(day, 1), dim);
 }
 
+/**
+ * Ayın gününü koruyarak ay ekler; kısa aylarda ay sonuna sabitler.
+ * 31 Ocak + 1 ay = 28 Şubat (31 Mart değil) — taksit tarihleri kaymasın diye.
+ */
+export function addMonthsKeepingDay(iso: ISODate, months: number): ISODate {
+  const [y, m, d] = iso.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const year = Math.floor(total / 12);
+  const month = (total % 12) + 1;
+  const day = clampDayToMonth(year, month, d);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 /** Belirli bir ay içinde, ayın gününü sabitleyerek tarih üretir. */
 export function dateInMonth(monthKeyStr: string, day: number): ISODate {
   const [y, m] = monthKeyStr.split("-").map(Number);

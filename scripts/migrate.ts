@@ -28,6 +28,44 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+/**
+ * Taksitlerin işlem tarihi (posted_date) sonradan eklendi. Eski kayıtlarda
+ * boş; planın alışveriş gününden türetilerek doldurulur — banka taksiti
+ * alışveriş gününün her ayki karşılığında işler.
+ */
+function backfillPostedDates(sqlite: Database.Database): void {
+  const rows = sqlite
+    .prepare(
+      `SELECT i.id, i.seq, p.purchase_date
+         FROM installments i
+         JOIN installment_plans p ON p.id = i.plan_id
+        WHERE i.posted_date IS NULL`,
+    )
+    .all() as Array<{ id: number; seq: number; purchase_date: string }>;
+
+  if (rows.length === 0) return;
+
+  const update = sqlite.prepare("UPDATE installments SET posted_date = ? WHERE id = ?");
+  const apply = sqlite.transaction(() => {
+    for (const row of rows) {
+      update.run(shiftMonths(row.purchase_date, row.seq - 1), row.id);
+    }
+  });
+  apply();
+  console.log(`· ${rows.length} taksitin işlem tarihi dolduruldu`);
+}
+
+/** Ayın gününü koruyarak ay ekler; kısa aylarda ay sonuna sabitler. */
+function shiftMonths(iso: string, months: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const total = y * 12 + (m - 1) + months;
+  const year = Math.floor(total / 12);
+  const month = (total % 12) + 1;
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const day = Math.min(d, lastDay);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 function runMigrations(): void {
   const sqlite = new Database(dbPath);
   try {
@@ -37,6 +75,7 @@ function runMigrations(): void {
     sqlite.pragma("foreign_keys = ON");
 
     migrate(drizzle(sqlite), { migrationsFolder: "./drizzle" });
+    backfillPostedDates(sqlite);
   } finally {
     sqlite.close();
   }

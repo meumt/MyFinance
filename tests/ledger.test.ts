@@ -93,6 +93,7 @@ function inst(dueDate: string, amountMinor: number, isPaid = false): Installment
     planId: 1,
     seq: instId,
     amountMinor,
+    postedDate: dueDate,
     dueDate,
     statementId: null,
     isPaid,

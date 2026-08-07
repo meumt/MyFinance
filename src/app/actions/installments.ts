@@ -5,9 +5,9 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { cards, installmentPlans, installments } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { addMonthsToKey, type ISODate } from "@/lib/dates";
+import { addMonthsKeepingDay, type ISODate } from "@/lib/dates";
 import { splitMinor } from "@/lib/money";
-import { buildPeriod, periodForTransaction } from "@/lib/statements";
+import { periodForTransaction } from "@/lib/statements";
 import {
   date,
   id,
@@ -83,16 +83,18 @@ async function createPlan(input: PlanInput): Promise<ActionState> {
 
   const planId = planRows[0].id;
 
+  /* Banka taksiti alışveriş gününün her ayki karşılığında işler: 23'ünde
+     alınan bir alışverişin taksitleri her ayın 23'ünde karta düşer. Bu işlem
+     tarihi kaynaktır; hangi ekstreye girdiği ondan türetilir. */
   const rows = amounts.map((amountMinor, index) => {
-    const period = buildPeriod(
-      addMonthsToKey(firstPeriod.monthKey, index),
-      cycle,
-    );
+    const postedDate = addMonthsKeepingDay(input.purchaseDate, index);
+    const period = periodForTransaction(postedDate, cycle);
     return {
       planId,
       seq: index + 1,
       amountMinor,
-      // Taksitin düştüğü ekstre dönemini kesim tarihiyle işaretliyoruz.
+      postedDate,
+      // Düştüğü ekstre dönemini kesim tarihiyle işaretliyoruz.
       dueDate: period.periodEnd,
       isPaid: false,
     };

@@ -1,0 +1,1 @@
+ALTER TABLE `installments` ADD `posted_date` text;

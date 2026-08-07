@@ -325,6 +325,13 @@ export const installments = sqliteTable(
       .references(() => installmentPlans.id, { onDelete: "cascade" }),
     seq: integer("seq").notNull(),
     amountMinor: integer("amount_minor").notNull(),
+    /**
+     * Taksitin karta işlendiği gün — alışveriş gününün her ayki karşılığı.
+     * Banka 23'ünde alınan bir alışverişin taksitlerini her ayın 23'ünde işler.
+     * Kaynak gerçek budur; hangi ekstreye düştüğü bundan türetilir.
+     */
+    postedDate: text("posted_date"),
+    /** Taksitin düştüğü ekstrenin kesim tarihi (postedDate'ten türetilir). */
     dueDate: text("due_date").notNull(),
     statementId: integer("statement_id").references(() => statements.id, {
       onDelete: "set null",
