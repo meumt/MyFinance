@@ -100,7 +100,10 @@ export default async function TransactionsPage({
         ref: snap.ref,
       });
       // Yalnızca ekstresi kesilmiş taksitler listelenir.
-      if (s.state === "gelecek") continue;
+      /* Ölçüt ekstre dönemi DEĞİL, işlemin gerçekleşmiş olmasıdır. Açık
+         dönemin içinde ama tarihi henüz gelmemiş bir taksit karta işlenmemiş
+         demektir; hareket listesinde görünmemeli. */
+      if (s.postedDate > snap.ref) continue;
       // Hareket listesinde taksit, karta işlendiği gün görünür.
       if (monthKey(s.postedDate) !== month) continue;
 
@@ -143,6 +146,12 @@ export default async function TransactionsPage({
     },
     { incomeMinor: 0, expenseMinor: 0, netMinor: 0 },
   );
+  /* Listede görünen taksitler ay toplamına da girmeli; aksi halde satırlar
+     görünüp Gider kutusuna yansımıyor. Bunlar gerçek hareket kaydı olmadığı
+     için mükerrer sayım riski yok. */
+  for (const row of installmentRows) {
+    monthTotals.expenseMinor += toTRYOrZero(row.amountMinor, row.currency, snap.rates);
+  }
   monthTotals.netMinor = monthTotals.incomeMinor - monthTotals.expenseMinor;
 
   /* Ay seçenekleri: verinin en eskisinden bu aya kadar + 1 ay ileri. */
