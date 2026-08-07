@@ -1,9 +1,19 @@
 import { AlertTriangle, PartyPopper, ShieldCheck, Store } from "lucide-react";
 import Link from "next/link";
 
-import { CategoryBars, IncomeExpenseChart, PayoffChart } from "@/components/charts";
+import {
+  CategoryBars,
+  IncomeExpenseChart,
+  PayoffChart,
+} from "@/components/charts";
 import { Alert, Money } from "@/components/display";
-import { Badge, EmptyState, Panel, PanelHeader, ProgressBar } from "@/components/ui";
+import {
+  Badge,
+  EmptyState,
+  Panel,
+  PanelHeader,
+  ProgressBar,
+} from "@/components/ui";
 import {
   budgetStatus,
   burnRate,
@@ -56,7 +66,9 @@ export default async function AnalyticsPage({
   };
   const payoff = payoffProjection(snap, overrides);
 
-  const withData = months.filter((m) => m.incomeMinor > 0 || m.expenseMinor > 0);
+  const withData = months.filter(
+    (m) => m.incomeMinor > 0 || m.expenseMinor > 0,
+  );
   const avgSavingsRate =
     withData.length > 0
       ? withData.reduce((s, m) => s + m.savingsRate, 0) / withData.length
@@ -88,7 +100,11 @@ export default async function AnalyticsPage({
             {runway.months > 0 ? `${runway.months.toFixed(1)} ay` : "—"}
           </p>
           <p className="muted mt-0.5 text-[11px]">
-            zorunlu giderle {formatMoney(runway.monthlyEssentialMinor, "TRY", { compact: true })}/ay
+            zorunlu giderle{" "}
+            {formatMoney(runway.monthlyEssentialMinor, "TRY", {
+              compact: true,
+            })}
+            /ay
           </p>
         </Panel>
 
@@ -99,7 +115,8 @@ export default async function AnalyticsPage({
           <p className="tabular mt-1 text-lg font-semibold">
             {payoff.assumptions.monthlyIncomeMinor > 0
               ? formatPercent(
-                  worth.debtMinor / (payoff.assumptions.monthlyIncomeMinor * 12),
+                  worth.debtMinor /
+                    (payoff.assumptions.monthlyIncomeMinor * 12),
                   0,
                 )
               : "—"}
@@ -114,10 +131,13 @@ export default async function AnalyticsPage({
           <p className="tabular mt-1 text-lg font-semibold">
             {payoff.assumptions.monthlyIncomeMinor > 0
               ? formatPercent(
-                  subs.monthlyEquivalentMinor / payoff.assumptions.monthlyIncomeMinor,
+                  subs.monthlyEquivalentMinor /
+                    payoff.assumptions.monthlyIncomeMinor,
                   1,
                 )
-              : formatMoney(subs.monthlyEquivalentMinor, "TRY", { compact: true })}
+              : formatMoney(subs.monthlyEquivalentMinor, "TRY", {
+                  compact: true,
+                })}
           </p>
           <p className="muted mt-0.5 text-[11px]">aylık gelirin payı</p>
         </Panel>
@@ -174,24 +194,34 @@ export default async function AnalyticsPage({
 
             {!payoff.isSustainable ? (
               <div className="px-4 pt-3.5 sm:px-5">
-                <Alert tone="gider" title="Mevcut tempoda borç kapanmıyor">
+                <Alert
+                  sensitive
+                  tone="gider"
+                  title="Mevcut tempoda borç kapanmıyor"
+                >
                   Aylık geliriniz giderlerinizi karşılamıyor
                   {payoff.monthlyCapacityMinor < 0
                     ? ` (${formatMoney(Math.abs(payoff.monthlyCapacityMinor))} açık)`
                     : ""}
-                  . Borcu azaltmak için gider kısmanız ya da gelir artırmanız gerekiyor.
-                  Yukarıdaki alanlardan farklı senaryolar deneyebilirsiniz.
+                  . Borcu azaltmak için gider kısmanız ya da gelir artırmanız
+                  gerekiyor. Yukarıdaki alanlardan farklı senaryolar
+                  deneyebilirsiniz.
                 </Alert>
               </div>
             ) : payoff.monthsToDebtFree ? (
               <div className="px-4 pt-3.5 sm:px-5">
                 <Alert
+                  sensitive
                   tone={payoff.monthsToDebtFree <= 12 ? "gelir" : "brand"}
                   title={`${payoff.monthsToDebtFree} ayda borçsuz kalırsınız`}
                 >
-                  {payoff.debtFreeMonth ? formatMonthTR(payoff.debtFreeMonth) : ""}{" "}
-                  itibarıyla tüm kart borcu, taksit ve krediniz kapanmış olur. Bu süreçte{" "}
-                  <strong>{formatMoney(payoff.totalInterestMinor)}</strong> faiz ödersiniz.
+                  {payoff.debtFreeMonth
+                    ? formatMonthTR(payoff.debtFreeMonth)
+                    : ""}{" "}
+                  itibarıyla tüm kart borcu, taksit ve krediniz kapanmış olur.
+                  Bu süreçte{" "}
+                  <strong>{formatMoney(payoff.totalInterestMinor)}</strong> faiz
+                  ödersiniz.
                   {payoff.assumptions.extraPaymentMinor === 0
                     ? " Ek ödeme alanına tutar girerek bu süreyi ne kadar kısaltacağınızı görebilirsiniz."
                     : ""}
@@ -215,9 +245,13 @@ export default async function AnalyticsPage({
                     <th className="px-4 py-2 font-medium sm:px-5">Ay</th>
                     <th className="px-2 py-2 text-right font-medium">Taksit</th>
                     <th className="px-2 py-2 text-right font-medium">Kredi</th>
-                    <th className="px-2 py-2 text-right font-medium">Kart / KMH</th>
+                    <th className="px-2 py-2 text-right font-medium">
+                      Kart / KMH
+                    </th>
                     <th className="px-2 py-2 text-right font-medium">Faiz</th>
-                    <th className="px-4 py-2 text-right font-medium sm:px-5">Kalan borç</th>
+                    <th className="px-4 py-2 text-right font-medium sm:px-5">
+                      Kalan borç
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="tabular">
@@ -233,26 +267,36 @@ export default async function AnalyticsPage({
                       </td>
                       <td className="muted px-2 py-2 text-right">
                         {m.installmentsMinor > 0
-                          ? formatMoney(m.installmentsMinor, "TRY", { showSymbol: false })
+                          ? formatMoney(m.installmentsMinor, "TRY", {
+                              showSymbol: false,
+                            })
                           : "—"}
                       </td>
                       <td className="muted px-2 py-2 text-right">
                         {m.loanPaymentsMinor > 0
-                          ? formatMoney(m.loanPaymentsMinor, "TRY", { showSymbol: false })
+                          ? formatMoney(m.loanPaymentsMinor, "TRY", {
+                              showSymbol: false,
+                            })
                           : "—"}
                       </td>
                       <td className="px-2 py-2 text-right">
                         {m.revolvingPaymentMinor > 0
-                          ? formatMoney(m.revolvingPaymentMinor, "TRY", { showSymbol: false })
+                          ? formatMoney(m.revolvingPaymentMinor, "TRY", {
+                              showSymbol: false,
+                            })
                           : "—"}
                       </td>
                       <td className="text-gider px-2 py-2 text-right">
                         {m.interestMinor > 0
-                          ? formatMoney(m.interestMinor, "TRY", { showSymbol: false })
+                          ? formatMoney(m.interestMinor, "TRY", {
+                              showSymbol: false,
+                            })
                           : "—"}
                       </td>
                       <td className="px-4 py-2 text-right font-semibold sm:px-5">
-                        {formatMoney(m.closingDebtMinor, "TRY", { showSymbol: false })}
+                        {formatMoney(m.closingDebtMinor, "TRY", {
+                          showSymbol: false,
+                        })}
                       </td>
                     </tr>
                   ))}
@@ -261,13 +305,14 @@ export default async function AnalyticsPage({
             </div>
 
             <p className="faint px-4 py-3 text-[11px] leading-relaxed sm:px-5">
-              Simülasyon her ay taksit ve kredi ödemelerini önceliklendirir, kalan
-              kapasiteyi{" "}
+              Simülasyon her ay taksit ve kredi ödemelerini önceliklendirir,
+              kalan kapasiteyi{" "}
               {payoff.assumptions.strategy === "cig"
                 ? "en yüksek faizli borca"
                 : "en küçük bakiyeli borca"}{" "}
               yatırır. Ödenmeyen kart borcuna aylık{" "}
-              {formatPercent(snap.settings.cardMonthlyRateBps / 10000, 2)} faiz işletilir.
+              {formatPercent(snap.settings.cardMonthlyRateBps / 10000, 2)} faiz
+              işletilir.
               {freeDate
                 ? ` Taksitleriniz ${formatDateTR(freeDate)} tarihinde bitiyor; sonrasında kapasite artar.`
                 : ""}
@@ -298,13 +343,17 @@ export default async function AnalyticsPage({
                 <th className="px-2 py-2 text-right font-medium">Gider</th>
                 <th className="px-2 py-2 text-right font-medium">Zorunlu</th>
                 <th className="px-2 py-2 text-right font-medium">Net</th>
-                <th className="px-4 py-2 text-right font-medium sm:px-5">Tasarruf</th>
+                <th className="px-4 py-2 text-right font-medium sm:px-5">
+                  Tasarruf
+                </th>
               </tr>
             </thead>
             <tbody className="tabular">
               {[...months].reverse().map((m) => (
                 <tr key={m.month} className="border-b last:border-b-0">
-                  <td className="px-4 py-2 sm:px-5">{formatMonthTR(m.month)}</td>
+                  <td className="px-4 py-2 sm:px-5">
+                    {formatMonthTR(m.month)}
+                  </td>
                   <td className="text-gelir px-2 py-2 text-right">
                     {formatMoney(m.incomeMinor, "TRY", { showSymbol: false })}
                   </td>
@@ -312,10 +361,15 @@ export default async function AnalyticsPage({
                     {formatMoney(m.expenseMinor, "TRY", { showSymbol: false })}
                   </td>
                   <td className="muted px-2 py-2 text-right">
-                    {formatMoney(m.essentialMinor, "TRY", { showSymbol: false })}
+                    {formatMoney(m.essentialMinor, "TRY", {
+                      showSymbol: false,
+                    })}
                   </td>
                   <td className="px-2 py-2 text-right font-semibold">
-                    {formatMoney(m.netMinor, "TRY", { showSymbol: false, signed: true })}
+                    {formatMoney(m.netMinor, "TRY", {
+                      showSymbol: false,
+                      signed: true,
+                    })}
                   </td>
                   <td className="px-4 py-2 text-right sm:px-5">
                     {m.incomeMinor > 0 ? formatPercent(m.savingsRate, 0) : "—"}
@@ -334,8 +388,14 @@ export default async function AnalyticsPage({
           subtitle={`${burn.daysElapsed}/${burn.daysInMonth} gün geçti`}
         />
         <div className="grid grid-cols-2 divide-x border-b sm:grid-cols-4">
-          <Cell label="Şu ana kadar" value={formatMoney(burn.spentSoFarMinor)} />
-          <Cell label="Günlük ortalama" value={formatMoney(burn.dailyAverageMinor)} />
+          <Cell
+            label="Şu ana kadar"
+            value={formatMoney(burn.spentSoFarMinor)}
+          />
+          <Cell
+            label="Günlük ortalama"
+            value={formatMoney(burn.dailyAverageMinor)}
+          />
           <Cell
             label="Ay sonu tahmini"
             value={formatMoney(burn.projectedMonthEndMinor)}
@@ -359,7 +419,7 @@ export default async function AnalyticsPage({
         </div>
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Kategori dağılımı */}
         <Panel>
           <PanelHeader
@@ -384,7 +444,10 @@ export default async function AnalyticsPage({
             subtitle={formatMonthTR(month)}
           />
           {merchants.length === 0 ? (
-            <EmptyState icon={<Store size={26} />} title="Bu ay işyeri kaydı yok" />
+            <EmptyState
+              icon={<Store size={26} />}
+              title="Bu ay işyeri kaydı yok"
+            />
           ) : (
             <ul>
               {merchants.map((m) => (
@@ -396,7 +459,10 @@ export default async function AnalyticsPage({
                     <p className="truncate text-sm font-medium">{m.name}</p>
                     <p className="faint text-[11px]">{m.txCount} işlem</p>
                   </div>
-                  <Money minor={m.amountMinor} className="text-sm font-semibold" />
+                  <Money
+                    minor={m.amountMinor}
+                    className="text-sm font-semibold"
+                  />
                 </li>
               ))}
             </ul>
@@ -425,20 +491,33 @@ export default async function AnalyticsPage({
                 <div className="mb-1.5 flex items-baseline justify-between gap-3">
                   <span className="flex items-center gap-1.5 truncate text-xs font-medium">
                     {b.isOver ? (
-                      <AlertTriangle size={12} className="text-gider shrink-0" />
+                      <AlertTriangle
+                        size={12}
+                        className="text-gider shrink-0"
+                      />
                     ) : (
                       <ShieldCheck size={12} className="text-gelir shrink-0" />
                     )}
                     {b.name}
                   </span>
                   <span className="tabular shrink-0 text-xs">
-                    <span className={b.isOver ? "text-gider font-semibold" : "font-semibold"}>
+                    <span
+                      className={
+                        b.isOver ? "text-gider font-semibold" : "font-semibold"
+                      }
+                    >
                       {formatMoney(b.spentMinor, "TRY", { showSymbol: false })}
                     </span>
-                    <span className="faint"> / {formatMoney(b.budgetMinor)}</span>
+                    <span className="para faint">
+                      {" "}
+                      / {formatMoney(b.budgetMinor)}
+                    </span>
                   </span>
                 </div>
-                <ProgressBar ratio={b.ratio} tone={b.isOver ? "gider" : "gelir"} />
+                <ProgressBar
+                  ratio={b.ratio}
+                  tone={b.isOver ? "gider" : "gelir"}
+                />
               </li>
             ))}
           </ul>

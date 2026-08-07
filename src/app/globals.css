@@ -106,6 +106,17 @@
     touch-action: manipulation;
   }
 
+  /*
+   * Yatay kaydırma hiçbir koşulda oluşmamalı. Gizli moddaki bulanıklık
+   * öğenin kutusunun ~21px dışına taşar (blur yarıçapının üç katı) ve tarayıcı
+   * bunu kaydırılabilir alana sayar. `clip`, `hidden`den farklı olarak kaydırma
+   * bağlamı oluşturmaz; böylece sticky başlıklar çalışmaya devam eder.
+   */
+  html,
+  body {
+    overflow-x: clip;
+  }
+
   body {
     background: var(--bg);
     color: var(--text);
@@ -180,6 +191,36 @@
   .table-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+}
+
+/*
+ * Gizli mod. Omuz üstünden bakan biri tutarları okuyamasın diye tüm parasal
+ * değerler bulanıklaştırılır. Açılışta varsayılan olarak AÇIKTIR.
+ *
+ * `.para` sınıfı tutar içeren öğelere, `.tabular` zaten sayısal gösterimlere
+ * konduğu için ikisi birlikte hedeflenir. Bulanıklık seçilebilirliği de
+ * kaldırır, böylece metin kopyalanarak okunamaz.
+ */
+.gizli .para,
+.gizli .tabular {
+  filter: blur(7px);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Gizli modda bile okunması gereken yerler (ör. form girdileri) */
+.gizli .para-acik,
+.gizli .para-acik * {
+  filter: none;
+  user-select: auto;
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .para,
+  .tabular {
+    transition: filter 0.15s ease-out;
   }
 }
 

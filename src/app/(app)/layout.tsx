@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { logoutAction } from "@/app/actions/auth";
 import { BottomNav, PageTitle, Sidebar } from "@/components/nav";
 import { QuickAdd, type QuickSource } from "@/components/quick-add";
+import { PrivacyToggle } from "@/components/privacy-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentUser } from "@/lib/auth";
 import { flattenCategories } from "@/lib/analytics";
@@ -64,13 +65,7 @@ export default async function AppLayout({
     .slice(0, 10)
     .map((m) => m.name);
 
-  const quickAdd = (
-    <QuickAdd
-      sources={sources}
-      categories={categories}
-      recentMerchants={recentMerchants}
-    />
-  );
+  const quickAddProps = { sources, categories, recentMerchants };
 
   return (
     <div className="min-h-dvh lg:flex">
@@ -93,7 +88,10 @@ export default async function AppLayout({
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t p-3">
-          <ThemeToggle compact />
+          <div className="flex items-center gap-0.5">
+            <PrivacyToggle compact />
+            <ThemeToggle compact />
+          </div>
           <form action={logoutAction}>
             <button
               type="submit"
@@ -115,7 +113,8 @@ export default async function AppLayout({
             </div>
             <PageTitle />
           </Link>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
+            <PrivacyToggle compact />
             <ThemeToggle compact />
             <form action={logoutAction}>
               <button
@@ -132,7 +131,7 @@ export default async function AppLayout({
         {/* Masaüstü üst çubuk */}
         <header className="surface sticky top-0 z-20 hidden h-14 items-center justify-between border-b px-6 lg:flex">
           <PageTitle />
-          {quickAdd}
+          <QuickAdd {...quickAddProps} trigger="button" />
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-3 py-4 pb-24 sm:px-5 lg:px-6 lg:pb-8">
@@ -140,7 +139,7 @@ export default async function AppLayout({
         </main>
       </div>
 
-      <BottomNav quickAdd={quickAdd} />
+      <BottomNav quickAdd={<QuickAdd {...quickAddProps} trigger="fab" />} />
     </div>
   );
 }

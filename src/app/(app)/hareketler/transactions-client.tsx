@@ -175,7 +175,7 @@ export function TransactionsClient({
         </div>
 
         {showFilters ? (
-          <div className="grid gap-2 border-b px-4 py-3 sm:grid-cols-3 sm:px-5">
+          <div className="grid grid-cols-1 gap-2 border-b px-4 py-3 sm:grid-cols-3 sm:px-5">
             <Select
               value={filters.source}
               onChange={(e) => setFilter("kaynak", e.target.value)}

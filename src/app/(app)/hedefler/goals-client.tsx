@@ -130,7 +130,7 @@ export function GoalsClient({
                       minor={goal.savedTRYMinor}
                       className="block text-sm font-semibold"
                     />
-                    <span className="faint text-[10px]">
+                    <span className="para faint text-[10px]">
                       / {formatMoney(goal.targetMinor, goal.currency, { compact: true })}
                     </span>
                   </div>

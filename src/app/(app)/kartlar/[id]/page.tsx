@@ -228,7 +228,7 @@ export default async function CardDetailPage({
         )}
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Aktif taksit planları */}
         <Panel>
           <PanelHeader

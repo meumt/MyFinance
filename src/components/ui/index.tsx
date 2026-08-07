@@ -34,11 +34,14 @@ export function PanelHeader({
   subtitle,
   action,
   className,
+  sensitive = false,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
   action?: ReactNode;
   className?: string;
+  /** Alt satır tutar içeriyorsa true — gizli modda bulanıklaştırılır. */
+  sensitive?: boolean;
 }) {
   return (
     <div
@@ -50,7 +53,9 @@ export function PanelHeader({
       <div className="min-w-0">
         <h2 className="truncate text-sm font-semibold">{title}</h2>
         {subtitle ? (
-          <p className="muted mt-0.5 truncate text-xs">{subtitle}</p>
+          <p className={cn("muted mt-0.5 truncate text-xs", sensitive && "para")}>
+            {subtitle}
+          </p>
         ) : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}

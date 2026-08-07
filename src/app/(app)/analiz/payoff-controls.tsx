@@ -47,7 +47,7 @@ export function PayoffControls({
 
   return (
     <div className="space-y-3 border-b px-4 py-3.5 sm:px-5">
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="Aylık gelir" hint="son 3 ayın ortalaması">
           <Input
             value={income}

@@ -36,13 +36,24 @@ export const viewport: Viewport = {
  */
 const THEME_SCRIPT = `
 (function () {
+  var root = document.documentElement;
   try {
     var stored = localStorage.getItem('myfinance-theme');
     var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     if (stored === 'dark' || (stored !== 'light' && prefersDark)) {
-      document.documentElement.classList.add('dark');
+      root.classList.add('dark');
     }
   } catch (e) {}
+
+  // Gizli mod her açılışta varsayılan olarak açıktır. Tercih oturum boyunca
+  // korunur; uygulama kapanıp açıldığında yeniden gizlenir.
+  try {
+    if (sessionStorage.getItem('myfinance-gizli') !== 'kapali') {
+      root.classList.add('gizli');
+    }
+  } catch (e) {
+    root.classList.add('gizli');
+  }
 })();
 `;
 

@@ -413,7 +413,7 @@ export function SettingsClient({
 
         <form action={rateAction} className="border-t px-4 py-4 sm:px-5">
           <p className="mb-3 text-xs font-semibold">Elle kur girişi</p>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Field label="Birim">
               <Select name="code" defaultValue="XAU">
                 <option value="USD">ABD Doları</option>

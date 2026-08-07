@@ -158,7 +158,7 @@ export function SubscriptionsClient({
                     className="block text-sm font-semibold"
                   />
                   {sub.cycle !== "aylik" ? (
-                    <span className="faint text-[10px]">
+                    <span className="para faint text-[10px]">
                       aylık {formatMoney(sub.monthlyEquivalentMinor)}
                     </span>
                   ) : null}

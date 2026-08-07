@@ -203,11 +203,11 @@ export function AccountsClient({
                       className={`block text-sm font-semibold ${account.balanceMinor < 0 ? "text-gider" : ""}`}
                     />
                     {account.currency !== "TRY" ? (
-                      <span className="faint text-[10px]">
+                      <span className="para faint text-[10px]">
                         ≈ {formatMoney(account.balanceTRYMinor)}
                       </span>
                     ) : account.overdraftAvailableMinor > 0 ? (
-                      <span className="faint text-[10px]">
+                      <span className="para faint text-[10px]">
                         +{formatMoney(account.overdraftAvailableMinor, account.currency, { compact: true })} ek
                       </span>
                     ) : null}

@@ -110,7 +110,7 @@ export function InstallmentLoadChart({ data }: { data: InstallmentPoint[] }) {
   const peak = Math.max(...chartData.map((d) => d.total), 0);
 
   return (
-    <div className="h-56 w-full sm:h-64">
+    <div className="para h-56 w-full sm:h-64">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
           <CartesianGrid {...GRID_STYLE} vertical={false} />
@@ -186,7 +186,7 @@ export function IncomeExpenseChart({ data }: { data: MonthlyPoint[] }) {
   }));
 
   return (
-    <div className="h-60 w-full sm:h-72">
+    <div className="para h-60 w-full sm:h-72">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
           <CartesianGrid {...GRID_STYLE} vertical={false} />
@@ -296,7 +296,7 @@ export function CashflowChart({
   const hasNegative = chartData.some((d) => d.balance < 0);
 
   return (
-    <div className="h-56 w-full sm:h-64">
+    <div className="para h-56 w-full sm:h-64">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
           <defs>
@@ -389,7 +389,7 @@ export function PayoffChart({ data }: { data: PayoffPoint[] }) {
   }));
 
   return (
-    <div className="h-52 w-full sm:h-60">
+    <div className="para h-52 w-full sm:h-60">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
           <CartesianGrid {...GRID_STYLE} vertical={false} />

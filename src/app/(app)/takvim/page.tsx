@@ -4,7 +4,12 @@ import { CashflowChart } from "@/components/charts";
 import { Alert, Money, ObligationRow } from "@/components/display";
 import { Badge, EmptyState, Panel, PanelHeader } from "@/components/ui";
 import { loadSnapshot } from "@/lib/data";
-import { formatDateTR, formatMonthTR, monthKey, relativeDayTR } from "@/lib/dates";
+import {
+  formatDateTR,
+  formatMonthTR,
+  monthKey,
+  relativeDayTR,
+} from "@/lib/dates";
 import { cashflowProjection, upcomingObligations } from "@/lib/forecast";
 import { formatMoney } from "@/lib/money";
 
@@ -33,12 +38,15 @@ export default async function CalendarPage() {
     .reduce((s, o) => s + o.amountMinor, 0);
 
   /* Aya göre gruplanmış liste — 6 aylık ufuk tek listede boğulmasın. */
-  const byMonth = obligations.reduce<Map<string, typeof obligations>>((map, o) => {
-    const key = monthKey(o.date);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(o);
-    return map;
-  }, new Map());
+  const byMonth = obligations.reduce<Map<string, typeof obligations>>(
+    (map, o) => {
+      const key = monthKey(o.date);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(o);
+      return map;
+    },
+    new Map(),
+  );
 
   const overdue = obligations.filter((o) => o.daysUntil < 0);
 
@@ -46,13 +54,18 @@ export default async function CalendarPage() {
     <div className="space-y-4">
       {cashflow.firstNegativeDate ? (
         <Alert
+          sensitive
           tone={
             cashflow.days.some((d) => d.exceedsOverdraft) ? "gider" : "uyari"
           }
           title={`Bakiye ${formatDateTR(cashflow.firstNegativeDate)} tarihinde eksiye düşüyor`}
         >
-          En düşük nokta <strong>{formatMoney(cashflow.minBalanceMinor)}</strong>
-          {cashflow.minBalanceDate ? ` (${formatDateTR(cashflow.minBalanceDate)})` : ""}.{" "}
+          En düşük nokta{" "}
+          <strong>{formatMoney(cashflow.minBalanceMinor)}</strong>
+          {cashflow.minBalanceDate
+            ? ` (${formatDateTR(cashflow.minBalanceDate)})`
+            : ""}
+          .{" "}
           {cashflow.overdraftHeadroomMinor > 0
             ? `Ek hesap limitiniz ${formatMoney(cashflow.overdraftHeadroomMinor)} — ${
                 cashflow.days.some((d) => d.exceedsOverdraft)
@@ -64,10 +77,16 @@ export default async function CalendarPage() {
       ) : null}
 
       {overdue.length > 0 ? (
-        <Alert tone="gider" title={`${overdue.length} gecikmiş ödeme`}>
+        <Alert
+          sensitive
+          tone="gider"
+          title={`${overdue.length} gecikmiş ödeme`}
+        >
           {overdue
             .slice(0, 4)
-            .map((o) => `${o.label} — ${formatMoney(o.amountMinor, o.currency)}`)
+            .map(
+              (o) => `${o.label} — ${formatMoney(o.amountMinor, o.currency)}`,
+            )
             .join(" · ")}
         </Alert>
       ) : null}
@@ -112,8 +131,8 @@ export default async function CalendarPage() {
           <p className="faint mt-2 text-[11px] leading-relaxed">
             Projeksiyon yalnızca <strong>bilinen</strong> ödemeleri içerir: kart
             ekstreleri, kredi taksitleri, abonelikler ve düzenli gelir/giderler.
-            Günlük harcamalar dahil değildir — gerçek bakiyeniz bu çizginin altında
-            seyredecektir.
+            Günlük harcamalar dahil değildir — gerçek bakiyeniz bu çizginin
+            altında seyredecektir.
           </p>
         </div>
       </Panel>
@@ -121,6 +140,7 @@ export default async function CalendarPage() {
       {/* Ödeme listesi */}
       <Panel>
         <PanelHeader
+          sensitive
           title="Yaklaşan ödemeler"
           subtitle={`6 aylık ufuk · ${formatMoney(outflow)} çıkış${inflow > 0 ? ` · ${formatMoney(inflow)} giriş` : ""}`}
         />
@@ -141,7 +161,9 @@ export default async function CalendarPage() {
               return (
                 <div key={month}>
                   <div className="surface-2 sticky top-14 z-10 flex items-center justify-between px-4 py-2 sm:px-5 lg:top-14">
-                    <span className="text-xs font-semibold">{formatMonthTR(month)}</span>
+                    <span className="text-xs font-semibold">
+                      {formatMonthTR(month)}
+                    </span>
                     <span className="tabular muted text-xs font-medium">
                       {formatMoney(monthOut)}
                     </span>

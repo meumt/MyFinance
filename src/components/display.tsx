@@ -38,7 +38,8 @@ export function Money({
   return (
     <span
       className={cn(
-        "tabular whitespace-nowrap",
+        // `para`: gizli modda bulanıklaştırılacak tutarları işaretler.
+        "para tabular whitespace-nowrap",
         signed && resolved === "gelir" && "text-gelir",
         signed && resolved === "gider" && "text-gider",
         className,
@@ -47,6 +48,20 @@ export function Money({
       {formatMoney(minor, currency, { signed, compact })}
     </span>
   );
+}
+
+/**
+ * Metin içinde geçen tutarları sarmalar: "5 aktif kart · 16.956,27 ₺ borç"
+ * gibi karışık cümlelerde yalnızca rakamı gizlemek için.
+ */
+export function Gizli({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <span className={cn("para", className)}>{children}</span>;
 }
 
 /* ─────────────────────────────── Özet kutusu ─────────────────────────────── */
@@ -82,8 +97,11 @@ export function StatTile({
           {label}
         </span>
       </div>
-      <p className={cn("tabular text-lg font-semibold sm:text-xl", accent)}>{value}</p>
-      {sub ? <p className="muted mt-0.5 truncate text-[11px]">{sub}</p> : null}
+      <p className={cn("para tabular text-lg font-semibold sm:text-xl", accent)}>
+        {value}
+      </p>
+      {/* Alt satır neredeyse her zaman tutar içerir; bütünüyle gizlenir. */}
+      {sub ? <p className="para muted mt-0.5 truncate text-[11px]">{sub}</p> : null}
     </>
   );
 
@@ -159,7 +177,7 @@ export function ObligationRow({ item }: { item: ObligationView }) {
           )}
         />
         {item.minimumMinor != null && item.minimumMinor > 0 ? (
-          <span className="faint text-[10px]">
+          <span className="para faint text-[10px]">
             asgari {formatMoney(item.minimumMinor, item.currency)}
           </span>
         ) : overdue ? (
@@ -192,11 +210,14 @@ export function Alert({
   title,
   children,
   action,
+  sensitive = false,
 }: {
   tone?: "uyari" | "gider" | "gelir" | "brand";
   title: string;
   children?: ReactNode;
   action?: ReactNode;
+  /** Gövde tutar içeriyorsa true — gizli modda bulanıklaştırılır. */
+  sensitive?: boolean;
 }) {
   const styles = {
     uyari: "bg-uyari/10 text-uyari border-uyari/25",
@@ -211,7 +232,14 @@ export function Alert({
         <div className="min-w-0">
           <p className="text-sm font-semibold">{title}</p>
           {children ? (
-            <div className="mt-0.5 text-xs leading-relaxed opacity-90">{children}</div>
+            <div
+              className={cn(
+                "mt-0.5 text-xs leading-relaxed opacity-90",
+                sensitive && "para",
+              )}
+            >
+              {children}
+            </div>
           ) : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}

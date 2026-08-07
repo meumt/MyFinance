@@ -29,10 +29,18 @@ export function QuickAdd({
   sources,
   categories,
   recentMerchants,
+  trigger = "fab",
 }: {
   sources: QuickSource[];
   categories: QuickCategory[];
   recentMerchants: string[];
+  /**
+   * Hangi tetikleyici çizilsin. Duyarlı sınıflarla ("hidden lg:inline-flex")
+   * gizlemeye güvenilmiyor: Button bileşeninin kendi `inline-flex` sınıfı
+   * dışarıdan gelen `hidden` ile çakışıyor ve hangisinin kazanacağı sınıf
+   * sırasına değil, üretilen CSS'in sırasına bağlı kalıyor.
+   */
+  trigger?: "fab" | "button";
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState<QuickAddState, FormData>(
@@ -101,26 +109,22 @@ export function QuickAdd({
 
   return (
     <>
-      {/* Tetikleyici — mobilde alt çubuğun ortasında yükseltilmiş düğme */}
-      <button
-        onClick={() => setOpen(true)}
-        className="bg-brand-600 hover:bg-brand-700 active:bg-brand-800 focus-ring shadow-brand-600/30 flex h-13 w-13 -translate-y-3 items-center justify-center rounded-full text-white shadow-lg transition-colors lg:hidden"
-        style={{ height: "3.25rem", width: "3.25rem" }}
-        aria-label="Hızlı harcama ekle"
-      >
-        <Plus size={26} strokeWidth={2.5} />
-      </button>
-
-      {/* Masaüstü tetikleyici */}
-      <Button
-        variant="primary"
-        onClick={() => setOpen(true)}
-        className="hidden lg:inline-flex"
-      >
-        <Zap size={15} />
-        Hızlı ekle
-        <kbd className="ml-1 rounded bg-white/20 px-1 text-[10px] font-semibold">N</kbd>
-      </Button>
+      {trigger === "fab" ? (
+        /* Mobilde alt çubuğun ortasında yükseltilmiş yuvarlak düğme */
+        <button
+          onClick={() => setOpen(true)}
+          className="bg-brand-600 hover:bg-brand-700 active:bg-brand-800 focus-ring shadow-brand-600/30 flex size-[3.25rem] -translate-y-3 items-center justify-center rounded-full text-white shadow-lg transition-colors"
+          aria-label="Hızlı harcama ekle"
+        >
+          <Plus size={26} strokeWidth={2.5} />
+        </button>
+      ) : (
+        <Button variant="primary" onClick={() => setOpen(true)}>
+          <Zap size={15} />
+          Hızlı ekle
+          <kbd className="ml-1 rounded bg-white/20 px-1 text-[10px] font-semibold">N</kbd>
+        </Button>
+      )}
 
       {!open ? null : (
         <>

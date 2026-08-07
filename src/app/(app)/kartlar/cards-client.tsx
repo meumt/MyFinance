@@ -217,7 +217,7 @@ export function CardsClient({
                       currency={card.currency}
                       className="block text-sm font-semibold"
                     />
-                    <span className="faint text-[10px]">
+                    <span className="para faint text-[10px]">
                       / {formatMoney(card.creditLimitMinor, card.currency, { compact: true })}
                     </span>
                   </div>

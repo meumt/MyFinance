@@ -114,7 +114,7 @@ export function BudgetsClient({
                     <span className={b.isOver ? "text-gider font-semibold" : "font-semibold"}>
                       {formatMoney(b.spentMinor, "TRY", { showSymbol: false })}
                     </span>
-                    <span className="faint"> / {formatMoney(b.amountMinor)}</span>
+                    <span className="para faint"> / {formatMoney(b.amountMinor)}</span>
                   </span>
                 </div>
                 <ProgressBar ratio={b.ratio} tone={b.isOver ? "gider" : "gelir"} />

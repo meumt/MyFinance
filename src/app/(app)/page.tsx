@@ -9,10 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-import {
-  InstallmentLoadChart,
-  IncomeExpenseChart,
-} from "@/components/charts";
+import { InstallmentLoadChart, IncomeExpenseChart } from "@/components/charts";
 import {
   Alert,
   initialsOf,
@@ -21,7 +18,13 @@ import {
   StatTile,
   TransactionRow,
 } from "@/components/display";
-import { Badge, EmptyState, Panel, PanelHeader, ProgressBar } from "@/components/ui";
+import {
+  Badge,
+  EmptyState,
+  Panel,
+  PanelHeader,
+  ProgressBar,
+} from "@/components/ui";
 import {
   burnRate,
   categoryBreakdown,
@@ -78,6 +81,7 @@ export default async function DashboardPage() {
       {/* Kritik uyarılar */}
       {cashflow.firstNegativeDate ? (
         <Alert
+          sensitive
           tone="gider"
           title={`Nakit sıkışması: ${formatDateTR(cashflow.firstNegativeDate)}`}
           action={
@@ -89,21 +93,24 @@ export default async function DashboardPage() {
             </Link>
           }
         >
-          Planlanan ödemelerle bakiyeniz {relativeDayTR(cashflow.firstNegativeDate)}{" "}
-          eksiye düşüyor. En düşük nokta{" "}
-          <strong>{formatMoney(cashflow.minBalanceMinor)}</strong>.
+          Planlanan ödemelerle bakiyeniz{" "}
+          {relativeDayTR(cashflow.firstNegativeDate)} eksiye düşüyor. En düşük
+          nokta <strong>{formatMoney(cashflow.minBalanceMinor)}</strong>.
         </Alert>
       ) : null}
 
       {obligations.filter((o) => o.daysUntil < 0).length > 0 ? (
         <Alert
+          sensitive
           tone="gider"
           title={`${obligations.filter((o) => o.daysUntil < 0).length} gecikmiş ödeme`}
         >
           {obligations
             .filter((o) => o.daysUntil < 0)
             .slice(0, 3)
-            .map((o) => `${o.label} (${formatMoney(o.amountMinor, o.currency)})`)
+            .map(
+              (o) => `${o.label} (${formatMoney(o.amountMinor, o.currency)})`,
+            )
             .join(" · ")}
         </Alert>
       ) : null}
@@ -156,10 +163,11 @@ export default async function DashboardPage() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Yaklaşan ödemeler */}
         <Panel>
           <PanelHeader
+            sensitive
             title="Yaklaşan ödemeler"
             subtitle={`Önümüzdeki 30 gün · toplam ${formatMoney(
               obligations
@@ -214,6 +222,7 @@ export default async function DashboardPage() {
         {/* Kartlar */}
         <Panel>
           <PanelHeader
+            sensitive
             title="Kartlar"
             subtitle={`${activeCards.length} aktif kart · ${formatMoney(worth.cardDebtMinor)} borç`}
             action={
@@ -274,8 +283,11 @@ export default async function DashboardPage() {
                           currency={card.currency}
                           className="block text-sm font-semibold"
                         />
-                        <span className="faint text-[10px]">
-                          / {formatMoney(card.creditLimitMinor, card.currency, { compact: true })}
+                        <span className="para faint text-[10px]">
+                          /{" "}
+                          {formatMoney(card.creditLimitMinor, card.currency, {
+                            compact: true,
+                          })}
                         </span>
                       </div>
                     </div>
@@ -362,7 +374,7 @@ export default async function DashboardPage() {
         )}
       </Panel>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Gelir gider */}
         <Panel>
           <PanelHeader title="Gelir ve gider" subtitle="Son 6 ay" />
@@ -399,13 +411,19 @@ export default async function DashboardPage() {
               {categories.map((c) => (
                 <li key={c.name} className="px-4 py-2.5 sm:px-5">
                   <div className="mb-1.5 flex items-baseline justify-between gap-3">
-                    <span className="truncate text-xs font-medium">{c.name}</span>
+                    <span className="truncate text-xs font-medium">
+                      {c.name}
+                    </span>
                     <span className="tabular shrink-0 text-xs font-semibold">
                       {formatMoney(c.amountMinor)}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <ProgressBar ratio={c.ratio} tone="brand" showOverflow={false} />
+                    <ProgressBar
+                      ratio={c.ratio}
+                      tone="brand"
+                      showOverflow={false}
+                    />
                     <span className="faint tabular w-9 shrink-0 text-right text-[11px]">
                       %{Math.round(c.ratio * 100)}
                     </span>
@@ -417,7 +435,7 @@ export default async function DashboardPage() {
         </Panel>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Son hareketler */}
         <Panel>
           <PanelHeader
@@ -449,7 +467,9 @@ export default async function DashboardPage() {
                     : undefined;
                 const title =
                   tx.description ??
-                  (tx.merchantId ? snap.merchantById.get(tx.merchantId)?.name : null) ??
+                  (tx.merchantId
+                    ? snap.merchantById.get(tx.merchantId)?.name
+                    : null) ??
                   categoryPath(category, snap.categoryById);
 
                 return (
@@ -473,6 +493,7 @@ export default async function DashboardPage() {
         {/* Abonelikler özeti */}
         <Panel>
           <PanelHeader
+            sensitive
             title="Abonelikler"
             subtitle={`${subs.activeCount} aktif · yılda ${formatMoney(subs.yearlyMinor)}`}
             action={
@@ -524,8 +545,11 @@ export default async function DashboardPage() {
                         className="block text-sm font-medium"
                       />
                       {s.cycle !== "aylik" ? (
-                        <span className="faint text-[10px]">
-                          aylık {formatMoney(s.monthlyEquivalentMinor, "TRY", { compact: true })}
+                        <span className="para faint text-[10px]">
+                          aylık{" "}
+                          {formatMoney(s.monthlyEquivalentMinor, "TRY", {
+                            compact: true,
+                          })}
                         </span>
                       ) : null}
                     </div>
@@ -581,8 +605,8 @@ function FirstRun() {
       <div className="mb-6 text-center">
         <h1 className="text-xl font-semibold">Kuruluma başlayalım</h1>
         <p className="muted mx-auto mt-1.5 max-w-md text-sm leading-relaxed">
-          Sisteme veri altlığını girdikçe panel dolmaya başlar. Sırasıyla ilerlemeniz
-          önerilir — her adım bir sonrakinin hesaplamalarını besler.
+          Sisteme veri altlığını girdikçe panel dolmaya başlar. Sırasıyla
+          ilerlemeniz önerilir — her adım bir sonrakinin hesaplamalarını besler.
         </p>
       </div>
 
@@ -598,7 +622,9 @@ function FirstRun() {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">{step.title}</p>
-                <p className="muted mt-0.5 text-xs leading-relaxed">{step.body}</p>
+                <p className="muted mt-0.5 text-xs leading-relaxed">
+                  {step.body}
+                </p>
               </div>
               <ArrowRight size={16} className="faint mt-1 shrink-0" />
             </Link>
