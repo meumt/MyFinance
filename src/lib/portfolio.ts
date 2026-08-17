@@ -82,7 +82,13 @@ export function formatUnitPrice(priceMicro: number, currency = "TRY"): string {
 /* ─────────────────────────── Pazar tanımları ─────────────────────────── */
 
 export type Market = "tefas" | "bist" | "nasdaq" | "diger";
-export type Provider = "fonoloji" | "yahoo" | "manuel";
+export type Provider =
+  | "otomatik"
+  | "fonoloji"
+  | "tradingview"
+  | "stooq"
+  | "yahoo"
+  | "manuel";
 
 export const MARKET_LABEL: Record<Market, string> = {
   tefas: "TEFAS fonu",
@@ -98,31 +104,49 @@ export const MARKET_CURRENCY: Record<Market, string> = {
   diger: "TRY",
 };
 
-/** Pazarın varsayılan fiyat kaynağı. */
-export const MARKET_PROVIDER: Record<Market, Provider> = {
-  tefas: "fonoloji",
-  bist: "yahoo",
-  nasdaq: "yahoo",
-  diger: "manuel",
+/**
+ * Pazarın fiyat kaynağı zinciri — sırayla denenir.
+ *
+ * Tek sağlayıcıya bağlanmak, o sağlayıcı erişimi kesince portföyün o kısmını
+ * kör bırakıyor. Zincirde bir kaynak sembolü veremezse sıradaki devralır.
+ *
+ * BIST için Fonoloji yok: Borsa İstanbul'un veri dağıtım lisansı gereği canlı
+ * fiyat döndürmüyor, yalnızca temel veri (F/K, hedef fiyat) veriyor.
+ */
+export const MARKET_CHAIN: Record<Market, Provider[]> = {
+  tefas: ["fonoloji"],
+  bist: ["tradingview", "yahoo"],
+  nasdaq: ["stooq", "tradingview", "yahoo"],
+  diger: [],
+};
+
+export const PROVIDER_LABEL: Record<Provider, string> = {
+  otomatik: "Otomatik (pazara göre)",
+  fonoloji: "Fonoloji",
+  tradingview: "TradingView",
+  stooq: "Stooq",
+  yahoo: "Yahoo Finance",
+  manuel: "Elle",
 };
 
 export function isMarket(value: string): value is Market {
   return value === "tefas" || value === "bist" || value === "nasdaq" || value === "diger";
 }
 
-/**
- * Sağlayıcının beklediği sembol. Kullanıcı sade kodu yazar (THYAO);
- * Yahoo Borsa İstanbul için `.IS` ekini ister.
- */
-export function providerSymbol(market: string, symbol: string): string {
-  const clean = symbol.trim().toUpperCase();
-  if (market === "bist") return clean.endsWith(".IS") ? clean : `${clean}.IS`;
-  return clean;
+/** Kullanıcının yazdığı kodun sadeleştirilmiş hali: THYAO.IS → THYAO. */
+export function cleanSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().replace(/\.IS$/, "");
 }
 
-/** Önbellek anahtarı: aynı sembolü iki hesapta tutmak tek istek eder. */
-export function quoteKey(provider: string, market: string, symbol: string): string {
-  return `${provider}:${providerSymbol(market, symbol)}`;
+/**
+ * Önbellek anahtarı PAZAR + sembol'dür, sağlayıcı değil.
+ *
+ * Fiyat kaynağı değiştiğinde (BIST için TradingView düşüp Yahoo devraldığında)
+ * aynı hisse için ikinci bir önbellek satırı oluşmamalı; yoksa ekranda iki
+ * farklı fiyat belirir.
+ */
+export function quoteKey(market: string, symbol: string): string {
+  return `${market}:${cleanSymbol(symbol)}`;
 }
 
 /* ──────────────────────────── Görünüm modeli ──────────────────────────── */
@@ -200,9 +224,7 @@ export function buildPortfolio(input: PortfolioInput): Portfolio {
   for (const holding of holdings) {
     if (!holding.isActive) continue;
 
-    const quote = quotes.get(
-      quoteKey(holding.provider, holding.market, holding.symbol),
-    );
+    const quote = quotes.get(quoteKey(holding.market, holding.symbol));
 
     /* Elle girilen fiyat sağlayıcıdan gelene tercih edilir: kullanıcı
        bilinçli olarak yazmıştır ve sağlayıcı o sembolü tanımıyor olabilir. */

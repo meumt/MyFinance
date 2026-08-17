@@ -564,8 +564,12 @@ export const holdings = sqliteTable(
 );
 
 /**
- * Fiyat önbelleği. Anahtar sağlayıcı + sembol olduğu için aynı hisseyi iki
- * ayrı hesapta tutmak ikinci bir istek doğurmaz.
+ * Fiyat önbelleği.
+ *
+ * Anahtar PAZAR + sembol'dür, sağlayıcı değil: bir pazarın fiyatı birden çok
+ * kaynaktan gelebilir (BIST için önce TradingView, olmazsa Yahoo) ve kaynak
+ * değiştiğinde aynı hisse için ikinci bir satır oluşmamalı. Fiyatı gerçekte
+ * hangi kaynağın verdiği `source` alanında durur.
  *
  * `priceMicro` = birim fiyat × 1e6, `currency` biriminde.
  */
@@ -573,8 +577,12 @@ export const quotes = sqliteTable(
   "quotes",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    provider: text("provider").notNull(),
+    /** tefas | bist | nasdaq | diger */
+    market: text("market").notNull(),
+    /** Kullanıcının yazdığı sade kod: THYAO, AAPL, IJC. */
     symbol: text("symbol").notNull(),
+    /** Fiyatı veren kaynak: tradingview | stooq | yahoo | fonoloji | manuel */
+    source: text("source"),
     priceMicro: integer("price_micro"),
     currency: text("currency").notNull().default("TRY"),
     /** Önceki kapanış — günlük değişim bundan türetilir. */
@@ -590,7 +598,7 @@ export const quotes = sqliteTable(
      */
     rawSample: text("raw_sample"),
   },
-  (t) => [uniqueIndex("quotes_provider_symbol_idx").on(t.provider, t.symbol)],
+  (t) => [uniqueIndex("quotes_market_symbol_idx").on(t.market, t.symbol)],
 );
 
 /* ────────────────────────────── Döviz Kurları ─────────────────────────────── */

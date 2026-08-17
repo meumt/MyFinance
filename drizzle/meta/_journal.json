@@ -22,6 +22,20 @@
       "when": 1786985563811,
       "tag": "0002_strong_randall",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786991496150,
+      "tag": "0003_drop_quotes_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786991511108,
+      "tag": "0004_quotes_cache_by_market",
+      "breakpoints": true
     }
   ]
 }

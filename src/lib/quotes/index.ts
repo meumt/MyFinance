@@ -4,9 +4,17 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { holdings as holdingsTable, quotes as quotesTable } from "@/db/schema";
 import type { Holding, Quote } from "@/db/schema";
-import { providerSymbol, quoteKey } from "../portfolio";
+import {
+  cleanSymbol,
+  MARKET_CHAIN,
+  quoteKey,
+  type Market,
+  type Provider,
+} from "../portfolio";
 import { getSettings } from "../settings";
 import { fetchFonolojiQuote } from "./fonoloji";
+import { fetchStooqQuotes, STOOQ_BATCH } from "./stooq";
+import { fetchTradingViewQuotes, TRADINGVIEW_BATCH } from "./tradingview";
 import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
 import { fetchYahooQuote } from "./yahoo";
 
@@ -14,43 +22,34 @@ export { probeFonoloji } from "./fonoloji";
 export type { FetchedQuote } from "./types";
 
 /**
- * Fiyat önbelleği.
+ * Fiyat önbelleği ve sağlayıcı zinciri.
  *
- * Sayfa her açıldığında sağlayıcıya gitmek ücretsiz kotayı boşa harcar ve
- * sayfayı yavaşlatır. Bunun yerine fiyatın tazeliğine bakılır: TTL içindeyse
- * veritabanındaki değer kullanılır, değilse yenilenir. Kullanıcı "10-15 dakika
- * geriden gitse de olur" dediği için varsayılan 15 dakikadır.
+ * İki ilke:
  *
- * Bir sembol iki ayrı kalemde tutuluyorsa (aynı hisse, iki hesap) tek istek
- * atılır: önbellek anahtarı sağlayıcı + sembol.
+ * 1. TAZELİK — Sayfa her açıldığında sağlayıcıya gitmek kotayı harcar ve
+ *    sayfayı yavaşlatır. Fiyat TTL içindeyse veritabanındaki değer kullanılır.
+ *
+ * 2. ZİNCİR — Her pazarın sıralı kaynak listesi vardır (`MARKET_CHAIN`).
+ *    Bir kaynak sembolü veremezse sıradaki devralır. Böylece tek bir servisin
+ *    kapanması portföyün o kısmını kör bırakmaz.
+ *
+ * Önbellek anahtarı pazar + sembol olduğu için kaynak değiştiğinde ikinci bir
+ * satır oluşmaz; fiyatı gerçekte kimin verdiği `source` alanında durur.
  */
 
-/**
- * Aynı anda kaç sağlayıcı isteği açılsın.
- *
- * 2'de tutuluyor: Yahoo aynı IP'den gelen ani yığını 429 ile geri çeviriyor.
- * Portföy büyükse fiyatlar birkaç sayfa açılışına yayılır — TTL zaten 15
- * dakika olduğu için bu gözle görülmez.
- */
+/** Toplu çalışamayan sağlayıcılarda aynı anda kaç istek. */
 const CONCURRENCY = 2;
 
-/** İstekler arasına konan nefes; hız sınırına takılmayı azaltır. */
+/** Tek tek giden istekler arasına konan nefes. */
 const STAGGER_MS = 250;
 
-/**
- * Sayfa açılışını kilitlememek için toplam süre bütçesi. Bütçe dolduğunda
- * kalan semboller bayat bırakılır ve bir sonraki açılışta çekilir; kullanıcı
- * 30 saniye boş ekrana bakmaz.
- */
-const BUDGET_MS = 6_000;
+/** Sayfa açılışını kilitlememek için toplam süre bütçesi. */
+const BUDGET_MS = 8_000;
 
 /** Hata alan bir sembol hemen tekrar denenmesin diye bekleme süresi. */
 const ERROR_BACKOFF_MS = 5 * 60 * 1000;
 
-/**
- * Hız sınırına takılan sembol için çok daha uzun bekleyiş. Her sayfa
- * açılışında yeniden denemek sınırı uzatmaktan başka işe yaramaz.
- */
+/** Hız sınırına takılan sembol için çok daha uzun bekleyiş. */
 const RATE_LIMIT_BACKOFF_MS = 30 * 60 * 1000;
 
 export interface RefreshResult {
@@ -58,17 +57,17 @@ export interface RefreshResult {
   cached: number;
   failed: number;
   errors: string[];
+  /** Hangi kaynaktan kaç fiyat geldi — teşhis için. */
+  bySource: Record<string, number>;
 }
 
-/** Bir kalemin fiyatının çekilmesi gereken sağlayıcı/sembol çifti. */
+/** Fiyatı çekilecek bir kalem: pazar + sade sembol. */
 interface Target {
   key: string;
-  provider: string;
-  /** Sağlayıcıya gönderilecek sembol (BIST için .IS ekli). */
-  symbol: string;
-  /** Kullanıcının yazdığı sade kod. */
-  rawSymbol: string;
   market: string;
+  symbol: string;
+  /** Kullanıcı bu kalem için belirli bir kaynak seçtiyse. */
+  forcedProvider: Provider | null;
 }
 
 function targetsOf(list: Holding[]): Target[] {
@@ -77,16 +76,19 @@ function targetsOf(list: Holding[]): Target[] {
     if (!h.isActive) continue;
     // Elle fiyat girilen kalem için sağlayıcıya gitmenin anlamı yok.
     if (h.provider === "manuel") continue;
-    const key = quoteKey(h.provider, h.market, h.symbol);
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        provider: h.provider,
-        symbol: providerSymbol(h.market, h.symbol),
-        rawSymbol: h.symbol.trim().toUpperCase(),
-        market: h.market,
-      });
-    }
+
+    const key = quoteKey(h.market, h.symbol);
+    if (map.has(key)) continue;
+
+    const forced =
+      h.provider && h.provider !== "otomatik" ? (h.provider as Provider) : null;
+
+    map.set(key, {
+      key,
+      market: h.market,
+      symbol: cleanSymbol(h.symbol),
+      forcedProvider: forced,
+    });
   }
   return [...map.values()];
 }
@@ -94,16 +96,12 @@ function targetsOf(list: Holding[]): Target[] {
 /** Kayıtlı fiyatları anahtarlarına göre okur. */
 export async function loadQuotes(): Promise<Map<string, Quote>> {
   const rows = await db.select().from(quotesTable);
-  const map = new Map<string, Quote>();
-  for (const row of rows) {
-    map.set(`${row.provider}:${row.symbol}`, row);
-  }
-  return map;
+  return new Map(rows.map((row) => [`${row.market}:${row.symbol}`, row]));
 }
 
 /**
  * Bayatlamış fiyatları yeniler. `force` verilirse TTL'e bakılmaz.
- * Hiç istek gerekmiyorsa ağa çıkmaz — sayfa açılışını yavaşlatmaz.
+ * Hiç istek gerekmiyorsa ağa çıkmaz.
  */
 export async function refreshQuotes(options: {
   holdings?: Holding[];
@@ -113,79 +111,202 @@ export async function refreshQuotes(options: {
   const settings = await getSettings();
   const now = options.now ?? Date.now();
   const ttlMs = Math.max(1, settings.quoteTtlMinutes) * 60 * 1000;
+  const empty: RefreshResult = {
+    fetched: 0,
+    cached: 0,
+    failed: 0,
+    errors: [],
+    bySource: {},
+  };
 
-  const list =
-    options.holdings ?? (await db.select().from(holdingsTable));
+  const list = options.holdings ?? (await db.select().from(holdingsTable));
   const targets = targetsOf(list);
-  if (targets.length === 0) {
-    return { fetched: 0, cached: 0, failed: 0, errors: [] };
-  }
+  if (targets.length === 0) return empty;
 
   const existing = await loadQuotes();
 
   const stale: Target[] = [];
   let cached = 0;
   for (const target of targets) {
-    const current = existing.get(target.key);
-    if (options.force || needsRefresh(current, now, ttlMs)) stale.push(target);
-    else cached++;
+    if (options.force || needsRefresh(existing.get(target.key), now, ttlMs)) {
+      stale.push(target);
+    } else {
+      cached++;
+    }
   }
-
-  if (stale.length === 0) {
-    return { fetched: 0, cached, failed: 0, errors: [] };
-  }
+  if (stale.length === 0) return { ...empty, cached };
 
   const deadline = now + BUDGET_MS;
-  const results = await runLimited(stale, CONCURRENCY, deadline, (target) =>
-    fetchOne(target, settings.fonolojiApiKey),
-  );
+  const resolved = new Map<string, { result: FetchedQuote; source: Provider }>();
 
+  /* Pazarlara ayır; her pazarın kendi zinciri sırayla denenir. */
+  const byMarket = new Map<string, Target[]>();
+  for (const target of stale) {
+    const bucket = byMarket.get(target.market) ?? [];
+    bucket.push(target);
+    byMarket.set(target.market, bucket);
+  }
+
+  for (const [market, marketTargets] of byMarket) {
+    /* Kullanıcı bir kalem için kaynak seçtiyse zincir yerine o kullanılır. */
+    const groups = new Map<string, Target[]>();
+    for (const target of marketTargets) {
+      const chainKey = target.forcedProvider ?? "__chain__";
+      const bucket = groups.get(chainKey) ?? [];
+      bucket.push(target);
+      groups.set(chainKey, bucket);
+    }
+
+    for (const [chainKey, groupTargets] of groups) {
+      const chain: Provider[] =
+        chainKey === "__chain__"
+          ? (MARKET_CHAIN[market as Market] ?? [])
+          : [chainKey as Provider];
+
+      let pending = groupTargets;
+
+      for (const provider of chain) {
+        if (pending.length === 0) break;
+        if (Date.now() > deadline) break;
+
+        const results = await runProvider(
+          provider,
+          market,
+          pending,
+          settings.fonolojiApiKey,
+          deadline,
+        );
+
+        const stillPending: Target[] = [];
+        for (const target of pending) {
+          const result = results.get(target.symbol.toUpperCase());
+          if (!result) {
+            // Bütçe yüzünden denenmedi; sıradaki kaynağa gitmesin.
+            stillPending.push(target);
+            continue;
+          }
+          if (result.ok) {
+            resolved.set(target.key, { result, source: provider });
+          } else {
+            /* Başarısız: son denenen hatayı sakla ama sıradaki kaynağa da
+               şans ver. Zincir biterse en son hata yazılır. */
+            resolved.set(target.key, { result, source: provider });
+            stillPending.push(target);
+          }
+        }
+        pending = stillPending;
+      }
+    }
+  }
+
+  /* Sonuçları yaz. */
   let fetched = 0;
   let failed = 0;
   const errors: string[] = [];
+  const bySource: Record<string, number> = {};
 
-  for (let i = 0; i < results.length; i++) {
-    const target = stale[i];
-    const result = results[i];
-    // Bütçe dolduğu için hiç denenmemiş semboller: kayda dokunma, bayat kalsın.
-    if (result === undefined) continue;
+  for (const target of stale) {
+    const entry = resolved.get(target.key);
+    if (!entry) continue; // hiç denenmedi (bütçe)
 
-    if (result.ok) {
+    const previous = existing.get(target.key);
+
+    if (entry.result.ok) {
       fetched++;
+      bySource[entry.source] = (bySource[entry.source] ?? 0) + 1;
       await upsertQuote({
-        provider: target.provider,
+        market: target.market,
         symbol: target.symbol,
-        priceMicro: result.priceMicro,
-        currency: result.currency,
-        previousCloseMicro: result.previousCloseMicro,
-        asOf: result.asOf,
+        source: entry.source,
+        priceMicro: entry.result.priceMicro,
+        currency: entry.result.currency,
+        previousCloseMicro: entry.result.previousCloseMicro,
+        asOf: entry.result.asOf,
         fetchedAt: now,
         error: null,
         rawSample: null,
       });
-      // Sağlayıcı ismi bildirdiyse ve kullanıcı boş bıraktıysa doldur.
-      if (result.name) await fillMissingNames(target, result.name);
+      if (entry.result.name) await fillMissingNames(target, entry.result.name);
     } else {
       failed++;
-      errors.push(`${target.rawSymbol}: ${result.error}`);
+      errors.push(`${target.symbol}: ${entry.result.error}`);
       /* Hatada eski fiyat KORUNUR: bir kesinti yüzünden portföyün değeri
-         sıfıra düşmesin. Sadece hata mesajı ve zaman damgası güncellenir. */
-      const previous = existing.get(target.key);
+         sıfıra düşmesin. Sadece hata ve zaman damgası güncellenir. */
       await upsertQuote({
-        provider: target.provider,
+        market: target.market,
         symbol: target.symbol,
+        source: previous?.source ?? null,
         priceMicro: previous?.priceMicro ?? null,
         currency: previous?.currency ?? "TRY",
         previousCloseMicro: previous?.previousCloseMicro ?? null,
         asOf: previous?.asOf ?? null,
         fetchedAt: now,
-        error: result.error,
-        rawSample: result.rawSample ?? null,
+        error: entry.result.error,
+        rawSample: entry.result.rawSample ?? null,
       });
     }
   }
 
-  return { fetched, cached, failed, errors };
+  return { fetched, cached, failed, errors, bySource };
+}
+
+/**
+ * Bir sağlayıcıyı verilen semboller için çalıştırır.
+ * Toplu çalışabilen sağlayıcılar parti parti, diğerleri seyreltilmiş tek
+ * tek gider. Dönen harita sembol (büyük harf) → sonuç.
+ */
+async function runProvider(
+  provider: Provider,
+  market: string,
+  targets: Target[],
+  fonolojiApiKey: string,
+  deadline: number,
+): Promise<Map<string, FetchedQuote>> {
+  const out = new Map<string, FetchedQuote>();
+  const symbols = targets.map((t) => t.symbol);
+
+  const record = (results: FetchedQuote[]) => {
+    for (const result of results) out.set(result.symbol.toUpperCase(), result);
+  };
+
+  if (provider === "tradingview") {
+    for (const batch of chunk(symbols, TRADINGVIEW_BATCH)) {
+      if (Date.now() > deadline) break;
+      record(await fetchTradingViewQuotes(market, batch));
+    }
+    return out;
+  }
+
+  if (provider === "stooq") {
+    for (const batch of chunk(symbols, STOOQ_BATCH)) {
+      if (Date.now() > deadline) break;
+      record(await fetchStooqQuotes(batch));
+    }
+    return out;
+  }
+
+  /* Tek tek çalışan sağlayıcılar. */
+  const single = async (symbol: string): Promise<FetchedQuote> => {
+    if (provider === "fonoloji") return fetchFonolojiQuote(symbol, fonolojiApiKey);
+    if (provider === "yahoo") {
+      // Yahoo Borsa İstanbul sembollerinde `.IS` ekini ister.
+      const yahooSymbol = market === "bist" ? `${symbol}.IS` : symbol;
+      const result = await fetchYahooQuote(yahooSymbol);
+      // Sonuç sade kodla eşlensin.
+      return { ...result, symbol };
+    }
+    return { symbol, ok: false, error: `Bilinmeyen sağlayıcı: ${provider}` };
+  };
+
+  const results = await runLimited(symbols, CONCURRENCY, deadline, single);
+  record(results.filter((r): r is FetchedQuote => r !== undefined));
+  return out;
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
 }
 
 function needsRefresh(quote: Quote | undefined, now: number, ttlMs: number): boolean {
@@ -196,32 +317,16 @@ function needsRefresh(quote: Quote | undefined, now: number, ttlMs: number): boo
   if (quote.error?.startsWith(RATE_LIMIT_PREFIX)) {
     return age > Math.max(ttlMs, RATE_LIMIT_BACKOFF_MS);
   }
-  /* Diğer hatalarda da bir süre beklenir: her sayfa açılışında çalışmayan
-     bir sembole yeniden gitmek kotayı tüketir. */
   if (quote.error) return age > Math.max(ttlMs, ERROR_BACKOFF_MS);
 
   if (quote.priceMicro == null) return true;
   return age > ttlMs;
 }
 
-async function fetchOne(target: Target, apiKey: string): Promise<FetchedQuote> {
-  switch (target.provider) {
-    case "yahoo":
-      return fetchYahooQuote(target.symbol);
-    case "fonoloji":
-      return fetchFonolojiQuote(target.symbol, apiKey);
-    default:
-      return {
-        symbol: target.symbol,
-        ok: false,
-        error: `Bilinmeyen sağlayıcı: ${target.provider}`,
-      };
-  }
-}
-
 async function upsertQuote(row: {
-  provider: string;
+  market: string;
   symbol: string;
+  source: string | null;
   priceMicro: number | null;
   currency: string;
   previousCloseMicro: number | null;
@@ -234,8 +339,9 @@ async function upsertQuote(row: {
     .insert(quotesTable)
     .values(row)
     .onConflictDoUpdate({
-      target: [quotesTable.provider, quotesTable.symbol],
+      target: [quotesTable.market, quotesTable.symbol],
       set: {
+        source: row.source,
         priceMicro: row.priceMicro,
         currency: row.currency,
         previousCloseMicro: row.previousCloseMicro,
@@ -254,8 +360,8 @@ async function fillMissingNames(target: Target, name: string): Promise<void> {
     .set({ name })
     .where(
       and(
-        eq(holdingsTable.provider, target.provider),
-        eq(holdingsTable.symbol, target.rawSymbol),
+        eq(holdingsTable.market, target.market),
+        eq(holdingsTable.symbol, target.symbol),
         eq(holdingsTable.name, ""),
       ),
     );
@@ -263,10 +369,8 @@ async function fillMissingNames(target: Target, name: string): Promise<void> {
 
 /**
  * Görevleri en fazla `limit` tanesi aynı anda, aralarında nefes bırakarak
- * yürütür. `deadline` geçtiğinde kalanlara hiç dokunulmaz ve o gözler
- * `undefined` kalır — çağıran bunu "denenmedi" diye okur.
- *
- * Sonuç dizisi girdi sırasını korur.
+ * yürütür. `deadline` geçtiğinde kalanlara dokunulmaz ve o gözler `undefined`
+ * kalır — çağıran bunu "denenmedi" diye okur.
  */
 async function runLimited<T, R>(
   items: T[],

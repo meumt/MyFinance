@@ -198,7 +198,7 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
   /* Portföy değerlemesi. Fiyatlar önbellekten okunur; tazeleme sayfa
      tarafında yapılır ki her snapshot yüklemesi ağ isteği doğurmasın. */
   const quoteMap = new Map<string, Quote>(
-    quoteRows.map((row) => [`${row.provider}:${row.symbol}`, row]),
+    quoteRows.map((row) => [`${row.market}:${row.symbol}`, row]),
   );
   const portfolio = buildPortfolio({
     holdings: holdingRows,

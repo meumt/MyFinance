@@ -41,11 +41,14 @@ import { formatMoney, formatPercent, minorToInputString } from "@/lib/money";
 import {
   formatQuantity,
   formatUnitPrice,
+  MARKET_CHAIN,
   MARKET_LABEL,
+  PROVIDER_LABEL,
   QTY_SCALE,
   PRICE_SCALE,
   type Market,
   type PortfolioGroup,
+  type Provider,
 } from "@/lib/portfolio";
 
 export interface HoldingRow {
@@ -80,6 +83,8 @@ export interface HoldingRow {
   asOf: string | null;
   fetchedAt: number | null;
   quoteError: string | null;
+  /** Fiyatı veren kaynak: tradingview | stooq | yahoo | fonoloji */
+  source: string | null;
 }
 
 export interface Totals {
@@ -117,8 +122,9 @@ export function InvestmentsClient({
   const [buying, setBuying] = useState<HoldingRow | null>(null);
   const [selling, setSelling] = useState<HoldingRow | null>(null);
 
-  const needsFonolojiKey =
-    !hasFonolojiKey && rows.some((r) => r.provider === "fonoloji");
+  /* Fonoloji yalnızca TEFAS fonlarında kullanılıyor; BIST/NASDAQ başka
+     kaynaklardan geliyor, o yüzden anahtar uyarısı fon varsa çıkar. */
+  const needsFonolojiKey = !hasFonolojiKey && rows.some((r) => r.market === "tefas");
 
   return (
     <div className="space-y-4">
@@ -386,9 +392,13 @@ export function InvestmentsClient({
                   </p>
                 ) : null}
 
-                {row.asOf ? (
+                {row.source || row.asOf ? (
                   <p className="faint mt-1 text-[10px]">
-                    fiyat tarihi {formatDateTR(row.asOf)}
+                    {row.source
+                      ? `kaynak ${PROVIDER_LABEL[row.source as Provider] ?? row.source}`
+                      : ""}
+                    {row.source && row.asOf ? " · " : ""}
+                    {row.asOf ? `fiyat tarihi ${formatDateTR(row.asOf)}` : ""}
                   </p>
                 ) : null}
 
@@ -408,13 +418,25 @@ export function InvestmentsClient({
           </ul>
         )}
 
-        <p className="faint px-4 py-3 text-[11px] leading-relaxed sm:px-5">
-          Fiyatlar Borsa İstanbul ve NASDAQ için Yahoo Finance'ten, fonlar için
-          Fonoloji'den alınır ve 15 dakika önbelleklenir — sayfayı her açışta
-          yeniden istek atılmaz. Veriler gecikmeli olabilir; işlem kararı için
-          değil takip için kullanın. Yatırımlar net değere girer,{" "}
-          <strong>harcanabilir tutara girmez</strong>.
-        </p>
+        <div className="faint px-4 py-3 text-[11px] leading-relaxed sm:px-5">
+          <p>
+            Her pazarın sıralı fiyat kaynağı vardır; biri veremezse sıradaki
+            devralır:
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {(["tefas", "bist", "nasdaq"] as Market[]).map((m) => (
+              <li key={m}>
+                <strong>{MARKET_LABEL[m]}</strong> — {chainHint(m)}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5">
+            Fiyatlar önbelleklenir, sayfayı her açışta yeniden istek atılmaz.
+            Veriler 15 dakikaya kadar gecikmeli olabilir; işlem kararı için
+            değil takip için kullanın. Yatırımlar net değere girer,{" "}
+            <strong>harcanabilir tutara girmez</strong>.
+          </p>
+        </div>
       </Panel>
 
       {/* Yeni kalem */}
@@ -617,12 +639,15 @@ function HoldingFields({
           name="provider"
           label="Fiyat kaynağı"
           options={[
-            { value: "", label: "Pazara göre otomatik" },
+            { value: "otomatik", label: "Otomatik — sırayla dener" },
+            { value: "tradingview", label: "TradingView" },
+            { value: "stooq", label: "Stooq (ABD)" },
             { value: "yahoo", label: "Yahoo Finance" },
             { value: "fonoloji", label: "Fonoloji (TEFAS)" },
             { value: "manuel", label: "Elle gireceğim" },
           ]}
-          defaultValue={row?.provider}
+          defaultValue={row?.provider ?? "otomatik"}
+          hint={`Otomatikte sıra: ${chainHint(row?.market ?? "bist")}`}
         />
         <div className="mt-3">
           <NumberField
@@ -654,6 +679,14 @@ function HoldingFields({
       </div>
     </>
   );
+}
+
+/** Bir pazarın kaynak zincirini okunur metne çevirir. */
+function chainHint(market: string): string {
+  const chain = MARKET_CHAIN[market as Market] ?? [];
+  return chain.length > 0
+    ? chain.map((p) => PROVIDER_LABEL[p]).join(" → ")
+    : "elle fiyat";
 }
 
 /** Kuruş girdisini form için biçimler — dışa aktarılmasa da okunurluk için. */

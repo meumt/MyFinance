@@ -6,6 +6,8 @@
  * okuyamadığında hata dönmeli, sıfır ya da tahmin dönmemeli.
  */
 import { parseFonolojiBody } from "../src/lib/quotes/fonoloji";
+import { parseStooqCsv } from "../src/lib/quotes/stooq";
+import { parseTradingViewBody } from "../src/lib/quotes/tradingview";
 import { toISODate, toNumber } from "../src/lib/quotes/parse";
 import {
   isValidCrumb,
@@ -308,6 +310,131 @@ if (withPrev.ok) {
   eq(withPrev.name, "Test Fonu", "fon adı");
   eq(withPrev.asOf, "2026-08-15", "değerleme tarihi");
 }
+
+/* ────────────────────────── TradingView (BIST) ────────────────────────── */
+group("TradingView — toplu BIST yanıtı");
+
+/* Sütun sırası istekte gönderilen sırayla aynıdır:
+   ["close", "change", "currency", "description"] */
+const tvBody = {
+  totalCount: 2,
+  data: [
+    { s: "BIST:THYAO", d: [312.75, 1.3776, "TRY", "TURK HAVA YOLLARI"] },
+    { s: "BIST:ASELS", d: [98.4, -0.5, "TRY", "ASELSAN"] },
+  ],
+};
+
+const tv = parseTradingViewBody(tvBody, ["THYAO", "ASELS"]);
+eq(tv.length, 2, "istenen her sembol için bir sonuç döner");
+
+const tvThyao = tv[0];
+eq(tvThyao.ok, true, "THYAO okunur");
+if (tvThyao.ok) {
+  eq(tvThyao.priceMicro, 312_750_000, "fiyat");
+  eq(tvThyao.currency, "TRY", "para birimi");
+  eq(tvThyao.name, "TURK HAVA YOLLARI", "isim");
+
+  /* Önceki kapanış yüzde değişimden türetilir: 312,75 / 1,013776 = 308,50… */
+  const expectedPrev = Math.round((312.75 / 1.013776) * 1_000_000);
+  eq(tvThyao.previousCloseMicro, expectedPrev, "önceki kapanış yüzdeden türetilir");
+
+  /* Türetilen değişim, TradingView'in bildirdiği yüzdeyle tutarlı olmalı. */
+  const derived =
+    ((tvThyao.priceMicro - tvThyao.previousCloseMicro!) /
+      tvThyao.previousCloseMicro!) *
+    100;
+  eq(Math.abs(derived - 1.3776) < 1e-6, true, "türetilen değişim bildirilen yüzdeyle tutarlı");
+}
+
+const tvAsels = tv[1];
+eq(tvAsels.ok, true, "ASELS okunur");
+if (tvAsels.ok) eq(tvAsels.priceMicro, 98_400_000, "ikinci sembolün fiyatı karışmaz");
+
+/* İstenen ama dönmeyen sembol için fiyat UYDURULMAZ — zincirdeki sonraki
+   kaynağa devredilebilsin diye hata döner. */
+const tvMissing = parseTradingViewBody(tvBody, ["THYAO", "YOKBOYLE"]);
+eq(tvMissing[1].ok, false, "dönmeyen sembol hata verir");
+
+/* Sıralama yanıttaki sıraya değil, istenen sembol sırasına göredir. */
+const tvReordered = parseTradingViewBody(tvBody, ["ASELS", "THYAO"]);
+eq(
+  tvReordered.map((r) => r.symbol),
+  ["ASELS", "THYAO"],
+  "sonuçlar istenen sırayla eşlenir",
+);
+if (tvReordered[0].ok) {
+  eq(tvReordered[0].priceMicro, 98_400_000, "yeniden sıralamada fiyat karışmaz");
+}
+
+/* Değişim sıfırsa uydurma bir "%0" üretilmez. */
+const tvFlat = parseTradingViewBody(
+  { data: [{ s: "BIST:XXXX", d: [10, 0, "TRY", "Test"] }] },
+  ["XXXX"],
+);
+if (tvFlat[0].ok) {
+  eq(tvFlat[0].previousCloseMicro, null, "değişim sıfırsa önceki kapanış bilinmiyor");
+}
+
+group("TradingView — bozuk yanıt");
+
+const tvGarbage = parseTradingViewBody({ hata: "beklenmedik" }, ["THYAO"]);
+eq(tvGarbage[0].ok, false, "'data' dizisi yoksa hata");
+if (!tvGarbage[0].ok) {
+  eq(typeof tvGarbage[0].rawSample, "string", "teşhis için ham örnek saklanır");
+}
+
+const tvNullPrice = parseTradingViewBody(
+  { data: [{ s: "BIST:THYAO", d: [null, null, "TRY", "X"] }] },
+  ["THYAO"],
+);
+eq(tvNullPrice[0].ok, false, "fiyat boşsa hata, sıfır değil");
+
+/* ──────────────────────────── Stooq (NASDAQ) ──────────────────────────── */
+group("Stooq — toplu CSV");
+
+const stooqCsv = [
+  "Symbol,Date,Time,Open,High,Low,Close,Volume",
+  "AAPL.US,2026-08-17,22:00:07,230.5,233.1,229.8,232.87,45000000",
+  "MSFT.US,2026-08-17,22:00:07,410.2,415,409.1,413.55,22000000",
+].join("\n");
+
+const stooq = parseStooqCsv(stooqCsv, ["AAPL", "MSFT"]);
+eq(stooq[0].ok, true, "AAPL okunur");
+if (stooq[0].ok) {
+  eq(stooq[0].priceMicro, 232_870_000, "kapanış fiyatı");
+  eq(stooq[0].currency, "USD", "ABD hissesi USD");
+  eq(stooq[0].asOf, "2026-08-17", "tarih");
+  eq(stooq[0].previousCloseMicro, null, "Stooq önceki kapanış vermez");
+}
+if (stooq[1].ok) eq(stooq[1].priceMicro, 413_550_000, "ikinci sembol karışmaz");
+
+/* Sütun sırası değişirse başlıktan okunur, sabit varsayılmaz. */
+const reorderedCsv = [
+  "Symbol,Close,Date",
+  "AAPL.US,232.87,2026-08-17",
+].join("\n");
+const stooqReordered = parseStooqCsv(reorderedCsv, ["AAPL"]);
+eq(stooqReordered[0].ok, true, "farklı sütun sırası okunur");
+if (stooqReordered[0].ok) {
+  eq(stooqReordered[0].priceMicro, 232_870_000, "başlıktan konum bulunur");
+}
+
+group("Stooq — bilinmeyen sembol N/D");
+
+/* Stooq bilinmeyen sembolde "N/D" yazar. Sayıya çevirmeye kalkmak sessizce
+   sıfır üretirdi. */
+const ndCsv = [
+  "Symbol,Date,Time,Open,High,Low,Close,Volume",
+  "YOKBOYLE.US,N/D,N/D,N/D,N/D,N/D,N/D,N/D",
+].join("\n");
+const nd = parseStooqCsv(ndCsv, ["YOKBOYLE"]);
+eq(nd[0].ok, false, "N/D fiyat değildir");
+
+const emptyCsv = parseStooqCsv("", ["AAPL"]);
+eq(emptyCsv[0].ok, false, "boş yanıt hata verir");
+
+const badHeader = parseStooqCsv("bambaska,alanlar\n1,2", ["AAPL"]);
+eq(badHeader[0].ok, false, "tanınmayan başlık hata verir");
 
 /* ────────────────────────────── Sonuç ────────────────────────────── */
 console.log(

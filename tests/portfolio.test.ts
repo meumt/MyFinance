@@ -11,8 +11,8 @@ import {
   applyPurchase,
   applySale,
   buildPortfolio,
+  cleanSymbol,
   formatQuantity,
-  providerSymbol,
   quoteKey,
   unitCostMicroOf,
   valueMinorOf,
@@ -87,16 +87,24 @@ const fonUnit = unitCostMicroOf(5_000_00, fonQty)!;
 near(valueMinorOf(fonQty, fonUnit), 5_000_00, 5, "birim maliyet mertebe olarak tutarlı");
 
 /* ────────────────────────── Sembol eşlemesi ────────────────────────── */
-group("Sağlayıcı sembolü");
+group("Sembol sadeleştirme ve önbellek anahtarı");
 
-eq(providerSymbol("bist", "thyao"), "THYAO.IS", "BIST sembolüne .IS eklenir");
-eq(providerSymbol("bist", "THYAO.IS"), "THYAO.IS", "zaten ekliyse iki kez eklenmez");
-eq(providerSymbol("nasdaq", "aapl"), "AAPL", "NASDAQ sembolü olduğu gibi");
-eq(providerSymbol("tefas", "phe"), "PHE", "fon kodu büyük harfe çevrilir");
+eq(cleanSymbol(" thyao "), "THYAO", "boşluk atılır, büyük harfe çevrilir");
+eq(cleanSymbol("THYAO.IS"), "THYAO", "Yahoo eki sadeleştirilir");
+eq(cleanSymbol("aapl"), "AAPL", "NASDAQ sembolü büyük harfe");
+
 eq(
-  quoteKey("yahoo", "bist", "THYAO"),
-  quoteKey("yahoo", "bist", "thyao.is"),
-  "aynı sembol tek önbellek anahtarı üretir",
+  quoteKey("bist", "THYAO"),
+  quoteKey("bist", "thyao.is"),
+  "aynı hisse tek önbellek anahtarı üretir",
+);
+/* Anahtar PAZAR bazlı: kaynak TradingView'den Yahoo'ya düşse bile aynı
+   satır güncellenir, ikinci bir fiyat satırı oluşmaz. */
+eq(quoteKey("bist", "THYAO"), "bist:THYAO", "anahtar pazar + sembol");
+eq(
+  quoteKey("bist", "AAPL") === quoteKey("nasdaq", "AAPL"),
+  false,
+  "aynı kod farklı pazarda ayrı anahtar",
 );
 
 /* ──────────────────────────── Adet gösterimi ──────────────────────────── */
@@ -120,7 +128,7 @@ function holding(overrides: Partial<Holding> = {}): Holding {
     quantityMicro: 100 * 1_000_000,
     totalCostMinor: 20_000_00,
     totalCostTryMinor: null,
-    provider: "yahoo",
+    provider: "otomatik",
     manualPriceMicro: null,
     brokerAccountId: null,
     isActive: true,
@@ -136,7 +144,8 @@ function holding(overrides: Partial<Holding> = {}): Holding {
 function quote(overrides: Partial<Quote> & { symbol: string }): Quote {
   return {
     id: 1,
-    provider: "yahoo",
+    market: "bist",
+    source: "tradingview",
     priceMicro: null,
     currency: "TRY",
     previousCloseMicro: null,
@@ -169,19 +178,25 @@ const bilinmeyen = holding({
   name: "Bilinmeyen Fon",
   market: "tefas",
   kind: "fon",
-  provider: "fonoloji",
+  provider: "otomatik",
   quantityMicro: 1_000_000_000,
   totalCostMinor: 5_000_00,
 });
 
 const quotes = new Map<string, Quote>([
   [
-    quoteKey("yahoo", "bist", "THYAO"),
-    quote({ symbol: "THYAO.IS", priceMicro: 250_000_000, previousCloseMicro: 240_000_000 }),
+    quoteKey("bist", "THYAO"),
+    quote({ symbol: "THYAO", priceMicro: 250_000_000, previousCloseMicro: 240_000_000 }),
   ],
   [
-    quoteKey("yahoo", "nasdaq", "AAPL"),
-    quote({ symbol: "AAPL", currency: "USD", priceMicro: 250_000_000 }),
+    quoteKey("nasdaq", "AAPL"),
+    quote({
+      symbol: "AAPL",
+      market: "nasdaq",
+      source: "stooq",
+      currency: "USD",
+      priceMicro: 250_000_000,
+    }),
   ],
 ]);
 

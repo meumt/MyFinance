@@ -53,6 +53,11 @@ export default async function InvestmentsPage() {
     asOf: item.asOf,
     fetchedAt: item.fetchedAt,
     quoteError: item.quoteError,
+    /* Fiyatı gerçekte hangi kaynak verdi. Zincir devreye girdiğinde
+       kullanıcının bunu görmesi teşhis için gerekli. */
+    source:
+      snap.quotes.get(`${item.holding.market}:${item.holding.symbol}`)?.source ??
+      null,
   }));
 
   return (

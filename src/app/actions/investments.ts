@@ -7,9 +7,9 @@ import { requireUser } from "@/lib/auth";
 import {
   applyPurchase,
   applySale,
+  cleanSymbol,
   isMarket,
   MARKET_CURRENCY,
-  MARKET_PROVIDER,
   QTY_SCALE,
   PRICE_SCALE,
 } from "@/lib/portfolio";
@@ -69,7 +69,7 @@ export async function saveHoldingAction(
     const marketRaw = str(form, "market");
     if (!isMarket(marketRaw)) return { error: "Pazar seçin." };
 
-    const symbol = str(form, "symbol").toUpperCase();
+    const symbol = cleanSymbol(str(form, "symbol"));
     if (symbol === "") return { error: "Kod/sembol girin." };
 
     const qty = quantity(form, "quantity");
@@ -80,13 +80,13 @@ export async function saveHoldingAction(
       return { error: "Toplam maliyet geçerli bir tutar olmalı." };
     }
 
-    /* Kullanıcı sağlayıcıyı seçmezse pazara göre varsayılan atanır: TEFAS →
-       Fonoloji, BIST/NASDAQ → Yahoo. */
+    /* Kaynak seçilmezse "otomatik": pazarın zinciri sırayla denenir. */
     const providerRaw = str(form, "provider");
-    const provider =
-      providerRaw === "fonoloji" || providerRaw === "yahoo" || providerRaw === "manuel"
-        ? providerRaw
-        : MARKET_PROVIDER[marketRaw];
+    const provider = (
+      ["fonoloji", "tradingview", "stooq", "yahoo", "manuel"] as const
+    ).includes(providerRaw as never)
+      ? providerRaw
+      : "otomatik";
 
     const currency = str(form, "currency") || MARKET_CURRENCY[marketRaw];
 
