@@ -1,21 +1,33 @@
 import { pickDate, pickNumber, rawSampleOf, toPriceMicro, type Json } from "./parse";
-import type { FetchedQuote } from "./types";
+import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
 
 /**
  * Fonoloji — TEFAS fonları için JSON API. Kimlik doğrulama `X-API-Key`
  * başlığıyla yapılır, ücretsiz katman ayda 15.000 istek verir.
  *
- * DİKKAT: Yanıttaki alan adları doğrulanamadı (dokümana erişilemedi), bu
- * yüzden fiyat tek bir isme bağlanmaz — bilinen adaylar sırayla denenir.
- * Hiçbiri tutmazsa fiyat UYDURULMAZ: hata döner ve yanıtın ham örneği
- * saklanır. Ayarlardaki "bağlantıyı sına" düğmesi o örneği gösterir, böylece
- * gerçek alan adı tek bakışta görülüp buraya eklenebilir.
+ * Gerçek yanıt biçimi (gövde `fund` altında toplanır):
+ *
+ *   { "fund": { "code": "IJC", "name": "…",
+ *               "current_price": 16.851023, "current_date": "2026-08-17",
+ *               "return_1d": -0.00080677, … } }
+ *
+ * Birim pay değeri altı ondalıklıdır; bu yüzden fiyatlar kuruşta değil
+ * micro (1e6) ölçeğinde tutulur.
+ *
+ * Alan adları değişirse fiyat UYDURULMAZ: hata döner ve yanıtın ham örneği
+ * saklanır. Ayarlardaki "bağlantıyı sına" düğmesi o örneği gösterir.
  */
 
 const BASE = "https://fonoloji.com/v1/funds";
 
-/** Birim pay değerinin bulunabileceği alan adları — sırayla denenir. */
+/**
+ * Birim pay değeri. İlk sıradakiler Fonoloji'nin gerçek alanları; kalanlar
+ * biçim değişirse tutunacak yedeklerdir.
+ */
 const PRICE_PATHS = [
+  "fund.current_price",
+  "current_price",
+  "fund.price",
   "price",
   "nav",
   "unitPrice",
@@ -49,6 +61,8 @@ const PRICE_PATHS = [
 ];
 
 const PREVIOUS_PATHS = [
+  "fund.previous_price",
+  "previous_price",
   "previousPrice",
   "previous_price",
   "previousNav",
@@ -59,6 +73,8 @@ const PREVIOUS_PATHS = [
 ];
 
 const DATE_PATHS = [
+  "fund.current_date",
+  "current_date",
   "date",
   "asOf",
   "navDate",
@@ -71,7 +87,18 @@ const DATE_PATHS = [
   "data.navHistory.date",
 ];
 
-const NAME_PATHS = ["title", "name", "fundName", "data.title", "data.name", "fund.title"];
+const NAME_PATHS = [
+  "fund.name",
+  "name",
+  "title",
+  "fundName",
+  "data.title",
+  "data.name",
+  "fund.title",
+];
+
+/** Günlük getiri oranı — önceki kapanış bundan türetilir. */
+const RETURN_1D_PATHS = ["fund.return_1d", "return_1d", "data.return_1d"];
 
 export async function fetchFonolojiQuote(
   code: string,
@@ -110,19 +137,35 @@ export function parseFonolojiBody(body: Json, code: string): FetchedQuote {
     };
   }
 
-  const previous = pickNumber(body, PREVIOUS_PATHS);
-
   return {
     symbol: code,
     ok: true,
     priceMicro,
-    previousCloseMicro:
-      previous !== null && previous !== price ? toPriceMicro(previous) : null,
+    previousCloseMicro: previousCloseOf(body, price!),
     // TEFAS fonları TL cinsindendir.
     currency: "TRY",
     asOf: pickDate(body, DATE_PATHS),
     name: pickString(body, NAME_PATHS),
   };
+}
+
+/**
+ * Önceki kapanış. Fonoloji doğrudan vermiyor; günlük getiri oranından
+ * türetilir:  önceki = güncel / (1 + getiri).
+ *
+ * Oran sıfırsa değişim yok demektir ve null dönülür — arayüzün "%0" yerine
+ * "bilinmiyor" demesi, uydurma bir kesinlik göstermesinden iyidir.
+ */
+function previousCloseOf(body: Json, price: number): number | null {
+  const explicit = pickNumber(body, PREVIOUS_PATHS);
+  if (explicit !== null && explicit !== price) return toPriceMicro(explicit);
+
+  const return1d = pickNumber(body, RETURN_1D_PATHS);
+  if (return1d === null || return1d === 0) return null;
+  // -1 ve altındaki oran matematiksel olarak anlamsız (fon sıfırlanmış olurdu).
+  if (return1d <= -1) return null;
+
+  return toPriceMicro(price / (1 + return1d));
 }
 
 /**
@@ -171,7 +214,9 @@ async function requestFonoloji(
     return { error: `Fon kodu bulunamadı: ${code}` };
   }
   if (res.status === 429) {
-    return { error: "İstek sınırı aşıldı (HTTP 429). Bir süre sonra tekrar denenecek." };
+    return {
+      error: `${RATE_LIMIT_PREFIX}: Fonoloji istek sınırı aşıldı (429). Fiyat bir süre sonra kendiliğinden yenilenecek.`,
+    };
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");

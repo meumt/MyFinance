@@ -7,7 +7,7 @@ import type { Holding, Quote } from "@/db/schema";
 import { providerSymbol, quoteKey } from "../portfolio";
 import { getSettings } from "../settings";
 import { fetchFonolojiQuote } from "./fonoloji";
-import type { FetchedQuote } from "./types";
+import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
 import { fetchYahooQuote } from "./yahoo";
 
 export { probeFonoloji } from "./fonoloji";
@@ -25,11 +25,33 @@ export type { FetchedQuote } from "./types";
  * atılır: önbellek anahtarı sağlayıcı + sembol.
  */
 
-/** Aynı anda kaç sağlayıcı isteği açılsın. */
-const CONCURRENCY = 4;
+/**
+ * Aynı anda kaç sağlayıcı isteği açılsın.
+ *
+ * 2'de tutuluyor: Yahoo aynı IP'den gelen ani yığını 429 ile geri çeviriyor.
+ * Portföy büyükse fiyatlar birkaç sayfa açılışına yayılır — TTL zaten 15
+ * dakika olduğu için bu gözle görülmez.
+ */
+const CONCURRENCY = 2;
+
+/** İstekler arasına konan nefes; hız sınırına takılmayı azaltır. */
+const STAGGER_MS = 250;
+
+/**
+ * Sayfa açılışını kilitlememek için toplam süre bütçesi. Bütçe dolduğunda
+ * kalan semboller bayat bırakılır ve bir sonraki açılışta çekilir; kullanıcı
+ * 30 saniye boş ekrana bakmaz.
+ */
+const BUDGET_MS = 6_000;
 
 /** Hata alan bir sembol hemen tekrar denenmesin diye bekleme süresi. */
 const ERROR_BACKOFF_MS = 5 * 60 * 1000;
+
+/**
+ * Hız sınırına takılan sembol için çok daha uzun bekleyiş. Her sayfa
+ * açılışında yeniden denemek sınırı uzatmaktan başka işe yaramaz.
+ */
+const RATE_LIMIT_BACKOFF_MS = 30 * 60 * 1000;
 
 export interface RefreshResult {
   fetched: number;
@@ -113,7 +135,8 @@ export async function refreshQuotes(options: {
     return { fetched: 0, cached, failed: 0, errors: [] };
   }
 
-  const results = await runLimited(stale, CONCURRENCY, (target) =>
+  const deadline = now + BUDGET_MS;
+  const results = await runLimited(stale, CONCURRENCY, deadline, (target) =>
     fetchOne(target, settings.fonolojiApiKey),
   );
 
@@ -124,6 +147,8 @@ export async function refreshQuotes(options: {
   for (let i = 0; i < results.length; i++) {
     const target = stale[i];
     const result = results[i];
+    // Bütçe dolduğu için hiç denenmemiş semboller: kayda dokunma, bayat kalsın.
+    if (result === undefined) continue;
 
     if (result.ok) {
       fetched++;
@@ -166,9 +191,15 @@ export async function refreshQuotes(options: {
 function needsRefresh(quote: Quote | undefined, now: number, ttlMs: number): boolean {
   if (!quote) return true;
   const age = now - quote.fetchedAt;
-  /* Hatalı kayıtlar için daha uzun beklenir: her sayfa açılışında çalışmayan
+
+  /* Hız sınırına takılmışsa uzun süre dokunulmaz — ısrar sınırı uzatır. */
+  if (quote.error?.startsWith(RATE_LIMIT_PREFIX)) {
+    return age > Math.max(ttlMs, RATE_LIMIT_BACKOFF_MS);
+  }
+  /* Diğer hatalarda da bir süre beklenir: her sayfa açılışında çalışmayan
      bir sembole yeniden gitmek kotayı tüketir. */
   if (quote.error) return age > Math.max(ttlMs, ERROR_BACKOFF_MS);
+
   if (quote.priceMicro == null) return true;
   return age > ttlMs;
 }
@@ -231,22 +262,29 @@ async function fillMissingNames(target: Target, name: string): Promise<void> {
 }
 
 /**
- * Görevleri en fazla `limit` tanesi aynı anda çalışacak şekilde yürütür.
+ * Görevleri en fazla `limit` tanesi aynı anda, aralarında nefes bırakarak
+ * yürütür. `deadline` geçtiğinde kalanlara hiç dokunulmaz ve o gözler
+ * `undefined` kalır — çağıran bunu "denenmedi" diye okur.
+ *
  * Sonuç dizisi girdi sırasını korur.
  */
 async function runLimited<T, R>(
   items: T[],
   limit: number,
+  deadline: number,
   worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
+): Promise<Array<R | undefined>> {
+  const results = new Array<R | undefined>(items.length);
   let cursor = 0;
 
   async function pump(): Promise<void> {
     while (true) {
       const index = cursor++;
       if (index >= items.length) return;
+      if (Date.now() > deadline) return;
+
       results[index] = await worker(items[index]);
+      if (STAGGER_MS > 0) await sleep(STAGGER_MS);
     }
   }
 
@@ -254,4 +292,8 @@ async function runLimited<T, R>(
     Array.from({ length: Math.min(limit, items.length) }, () => pump()),
   );
   return results;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

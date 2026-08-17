@@ -63,16 +63,20 @@ export function formatQuantity(quantityMicro: number): string {
   });
 }
 
-/** Birim fiyat gösterimi — fon birim pay değeri için 6 basamak gerekir. */
+/**
+ * Birim fiyat gösterimi.
+ *
+ * En çok 6 basamak gösterilir, sondaki gereksiz sıfırlar atılır: fonun birim
+ * pay değeri 16,851023 iken 16,85 yazmak fonda anlamlı olan basamakları
+ * siler; hissede 312,75 zaten iki basamaktır ve öyle kalır.
+ */
 export function formatUnitPrice(priceMicro: number, currency = "TRY"): string {
-  const value = priceMicro / PRICE_SCALE;
-  const digits = Math.abs(value) < 10 ? 6 : 2;
   return new Intl.NumberFormat("tr-TR", {
     style: "currency",
     currency,
     minimumFractionDigits: 2,
-    maximumFractionDigits: digits,
-  }).format(value);
+    maximumFractionDigits: 6,
+  }).format(priceMicro / PRICE_SCALE);
 }
 
 /* ─────────────────────────── Pazar tanımları ─────────────────────────── */

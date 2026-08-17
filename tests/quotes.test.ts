@@ -178,6 +178,72 @@ for (const [label, body] of variants) {
   }
 }
 
+group("Fonoloji — gerçek yanıt (IJC)");
+
+/* Fonoloji'nin canlı yanıtından alınmış gerçek gövde. Alan adları buradan
+   doğrulandı; biçim değişirse bu test önce kırılır. */
+const ijcBody = {
+  fund: {
+    code: "IJC",
+    name: "İŞ PORTFÖY YARI İLETKEN TEKNOLOJİLERİ DEĞİŞKEN FON",
+    type: "YAT",
+    category: "Değişken Şemsiye Fonu",
+    management_company: "İş Portföy Yönetimi A.Ş.",
+    first_seen: "2021-06-15",
+    last_seen: "2026-08-17",
+    updated_at: 1_786_978_813_683,
+    isin: "TRYISPO00704",
+    risk_score: 6,
+    trading_status: "AKTİF",
+    current_price: 16.851023,
+    current_date: "2026-08-17",
+    return_1d: -0.0008067773088870998,
+    return_1w: 0.017283,
+    return_1m: 0.052459,
+    aum: 5_462_378_527.97,
+    investor_count: 47_404,
+  },
+};
+
+const ijc = parseFonolojiBody(ijcBody, "IJC");
+eq(ijc.ok, true, "gerçek yanıt okunur");
+if (ijc.ok) {
+  eq(ijc.priceMicro, 16_851_023, "birim pay değeri 16,851023");
+  eq(ijc.currency, "TRY", "TL");
+  eq(ijc.asOf, "2026-08-17", "değerleme tarihi");
+  eq(
+    ijc.name,
+    "İŞ PORTFÖY YARI İLETKEN TEKNOLOJİLERİ DEĞİŞKEN FON",
+    "fon adı",
+  );
+
+  /* Önceki kapanış günlük getiriden türetilir:
+     16,851023 / (1 − 0,0008067773) = 16,864628… */
+  const expectedPrev = Math.round(
+    (16.851023 / (1 - 0.0008067773088870998)) * 1_000_000,
+  );
+  eq(ijc.previousCloseMicro, expectedPrev, "önceki kapanış getiriden türetilir");
+
+  /* Türetilen değişim oranı, Fonoloji'nin bildirdiği getiriye eşit olmalı. */
+  const derived =
+    (ijc.priceMicro - ijc.previousCloseMicro!) / ijc.previousCloseMicro!;
+  eq(
+    Math.abs(derived - -0.0008067773088870998) < 1e-9,
+    true,
+    "türetilen günlük değişim bildirilen getiriyle tutarlı",
+  );
+}
+
+/* Getiri sıfırsa uydurma bir "%0 değişim" üretilmez. */
+const flat = parseFonolojiBody(
+  { fund: { current_price: 10, current_date: "2026-08-17", return_1d: 0 } },
+  "TEST",
+);
+eq(flat.ok, true, "okunur");
+if (flat.ok) {
+  eq(flat.previousCloseMicro, null, "getiri sıfırsa önceki kapanış bilinmiyor");
+}
+
 group("Fonoloji — tanınmayan yanıt fiyat UYDURMAZ");
 
 const unknown = parseFonolojiBody(

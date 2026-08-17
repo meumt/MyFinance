@@ -112,22 +112,32 @@ export async function saveHoldingAction(
 
     if (holdingId) {
       await db.update(holdings).set(values).where(eq(holdings.id, holdingId));
-    } else {
-      const inserted = await db
-        .insert(holdings)
-        .values(values)
-        .returning({ id: holdings.id });
-
-      /* Yeni kalem eklendiğinde fiyatını hemen çek: kullanıcı kaydettikten
-         sonra değerini görmek için 15 dakika beklemesin. */
-      await refreshQuotes({ force: true }).catch(() => undefined);
+      const updated = await db.query.holdings.findFirst({
+        where: eq(holdings.id, holdingId),
+      });
+      /* Yalnızca bu kalemin fiyatı tazelenir. Tümünü zorla çekmek, hız
+         sınırına takılmış sembollere de yeniden gitmek demektir. */
+      if (updated) {
+        await refreshQuotes({ holdings: [updated], force: true }).catch(
+          () => undefined,
+        );
+      }
       revalidateAll();
-      return { success: `${symbol} eklendi.`, id: inserted[0].id };
+      return { success: `${symbol} güncellendi.` };
     }
 
-    await refreshQuotes({}).catch(() => undefined);
+    const inserted = await db
+      .insert(holdings)
+      .values(values)
+      .returning();
+
+    /* Yeni kalemin fiyatı hemen çekilir: kullanıcı kaydettikten sonra
+       değerini görmek için TTL dolmasını beklemesin. */
+    await refreshQuotes({ holdings: inserted, force: true }).catch(
+      () => undefined,
+    );
     revalidateAll();
-    return { success: `${symbol} güncellendi.` };
+    return { success: `${symbol} eklendi.`, id: inserted[0].id };
   } catch (error) {
     return toActionError(error, "Yatırım kaydedilemedi.");
   }

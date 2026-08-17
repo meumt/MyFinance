@@ -1,3 +1,12 @@
+/**
+ * Hız sınırına takılan hataların başına konur.
+ *
+ * Metne bakmak kırılgan görünse de tek doğruluk kaynağı budur: hata
+ * mesajı zaten veritabanında saklanıyor ve bu işaret sayesinde ayrı bir
+ * sütuna gerek kalmadan "bu sembolü bir süre rahat bırak" kararı verilebilir.
+ */
+export const RATE_LIMIT_PREFIX = "Hız sınırı";
+
 /** Bir sağlayıcıdan dönen tek fiyat sonucu. */
 export type FetchedQuote =
   | {
