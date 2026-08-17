@@ -178,6 +178,21 @@ eq(
   "bozuk satır diğerlerini bozmaz",
 );
 
+/* Yönlendirme zincirinde aynı çerez birden çok kez gelebilir; sonuncusu
+   geçerlidir. Aynı adı iki kez göndermek sunucuyu şaşırtır. */
+eq(
+  parseSetCookie(["A1=eski; Path=/", "B2=x", "A1=yeni; Path=/"]),
+  "A1=yeni; B2=x",
+  "aynı çerez tekrar gelirse sonuncusu geçerli",
+);
+/* Değerin içinde "=" olabilir (Yahoo'nun A1 çerezi böyledir): ilk "=" ayırıcı,
+   kalanı değerin parçasıdır. */
+eq(
+  parseSetCookie(["A1=d=AQABBHc&S=AQAAAr; Path=/"]),
+  "A1=d=AQABBHc&S=AQAAAr",
+  "değerdeki eşittir işareti korunur",
+);
+
 /* Jeton kısa ve alfanümeriktir; captcha/HTML sayfası buradan geçmemeli,
    yoksa her isteğe anlamsız bir crumb eklenir ve hepsi reddedilir. */
 eq(isValidCrumb("aaBBccDD123"), true, "normal jeton");
@@ -374,6 +389,27 @@ const tvFlat = parseTradingViewBody(
 if (tvFlat[0].ok) {
   eq(tvFlat[0].previousCloseMicro, null, "değişim sıfırsa önceki kapanış bilinmiyor");
 }
+
+group("TradingView — borsa öneki");
+
+/* ABD'de hissenin NASDAQ'ta mı NYSE'de mi olduğu önceden bilinmiyor; istek
+   hepsini birden soruyor, yanıt hangi önekle gelirse gelsin sade koda
+   eşlenmeli. TTWO bu yüzden fiyatsız kalıyordu. */
+const tvUs = parseTradingViewBody(
+  { data: [{ s: "NASDAQ:TTWO", d: [231.4, 0.85, "USD", "TAKE-TWO INTERACTIVE"] }] },
+  ["TTWO"],
+);
+eq(tvUs[0].ok, true, "NASDAQ öneki ile dönen hisse eşlenir");
+if (tvUs[0].ok) {
+  eq(tvUs[0].priceMicro, 231_400_000, "fiyat");
+  eq(tvUs[0].currency, "USD", "ABD hissesi USD");
+}
+
+const tvNyse = parseTradingViewBody(
+  { data: [{ s: "NYSE:BRK.B", d: [410.2, -0.3, "USD", "BERKSHIRE"] }] },
+  ["BRK.B"],
+);
+eq(tvNyse[0].ok, true, "NYSE öneki ile dönen hisse de eşlenir");
 
 group("TradingView — bozuk yanıt");
 

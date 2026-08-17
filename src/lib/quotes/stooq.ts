@@ -10,6 +10,9 @@ import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
  * İstek:
  *   GET https://stooq.com/q/l/?s=aapl.us+msft.us&f=sd2t2ohlcv&h&e=csv
  *
+ * `stooq.com` bazı ağlardan 404 dönüyor; Polonya'daki asıl alan adı
+ * `stooq.pl` aynı uç noktayı sunuyor, sırayla denenir.
+ *
  * Yanıt:
  *   Symbol,Date,Time,Open,High,Low,Close,Volume
  *   AAPL.US,2026-08-17,22:00:07,230.5,233.1,229.8,232.87,45000000
@@ -24,6 +27,9 @@ import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
 /** Bir istekte kaç sembol. */
 export const STOOQ_BATCH = 20;
 
+/** Aynı uç noktayı sunan alan adları — biri 404 verirse diğeri denenir. */
+const HOSTS = ["https://stooq.com", "https://stooq.pl"];
+
 /** ABD sembolleri Stooq'ta `.us` sonekiyle aranır. */
 function stooqSymbol(symbol: string): string {
   const clean = symbol.trim().toLowerCase();
@@ -32,45 +38,52 @@ function stooqSymbol(symbol: string): string {
 
 export async function fetchStooqQuotes(
   symbols: string[],
-  timeoutMs = 15_000,
+  timeoutMs = 8_000,
 ): Promise<FetchedQuote[]> {
-  const query = symbols.map(stooqSymbol).join("+");
-  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(query)}&f=sd2t2ohlcv&h&e=csv`;
+  /* Sembol ayırıcısı `+` sorgu dizesinde olduğu gibi kalmalı; tümünü
+     encodeURIComponent'ten geçirmek onu %2B'ye çevirir ve Stooq sorguyu tek
+     bir uydurma sembol sanır. */
+  const query = symbols.map((s) => encodeURIComponent(stooqSymbol(s))).join("+");
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      headers: {
-        Accept: "text/csv,text/plain,*/*",
-        "User-Agent":
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      },
-      signal: AbortSignal.timeout(timeoutMs),
-      cache: "no-store",
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error ? `Bağlantı: ${error.message}` : "Bağlantı hatası";
-    return symbols.map((symbol) => ({ symbol, ok: false, error: message }));
+  let lastError = "Stooq yanıt vermedi";
+
+  for (const host of HOSTS) {
+    const url = `${host}/q/l/?s=${query}&f=sd2t2ohlcv&h&e=csv`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Accept: "text/csv,text/plain,*/*",
+          "User-Agent":
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+        cache: "no-store",
+      });
+    } catch (error) {
+      lastError =
+        error instanceof Error ? `Bağlantı: ${error.message}` : "Bağlantı hatası";
+      continue;
+    }
+
+    if (res.status === 429) {
+      return symbols.map((symbol) => ({
+        symbol,
+        ok: false,
+        error: `${RATE_LIMIT_PREFIX}: Stooq çok fazla istek aldı (429).`,
+      }));
+    }
+
+    if (!res.ok) {
+      lastError = `Stooq HTTP ${res.status}`;
+      continue;
+    }
+
+    return parseStooqCsv(await res.text(), symbols);
   }
 
-  if (res.status === 429) {
-    return symbols.map((symbol) => ({
-      symbol,
-      ok: false,
-      error: `${RATE_LIMIT_PREFIX}: Stooq çok fazla istek aldı (429).`,
-    }));
-  }
-
-  if (!res.ok) {
-    return symbols.map((symbol) => ({
-      symbol,
-      ok: false,
-      error: `Stooq HTTP ${res.status}`,
-    }));
-  }
-
-  return parseStooqCsv(await res.text(), symbols);
+  return symbols.map((symbol) => ({ symbol, ok: false, error: lastError }));
 }
 
 /**

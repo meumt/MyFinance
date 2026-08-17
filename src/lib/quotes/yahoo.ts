@@ -61,25 +61,49 @@ const SESSION_TTL_MS = 60 * 60 * 1000;
  */
 const HANDSHAKE_BACKOFF_MS = 5 * 60 * 1000;
 
+/**
+ * İki el sıkışma arasındaki en kısa süre — BAŞARILI olsa bile.
+ *
+ * 429 alan her sembol oturumu bayat sayıp yenisini istiyordu. Yirmi sembollük
+ * bir portföyde Yahoo sınırlamaya başladığında bu, yirmi el sıkışma (kırk
+ * ekstra istek) demekti: sınırı aşmamak için eklenen mekanizma sınırı
+ * besliyordu. Bu aralık, sınırlama sürerken el sıkışmanın da seyrelmesini
+ * sağlar.
+ */
+const HANDSHAKE_MIN_INTERVAL_MS = 60 * 1000;
+
 /** Süreç ömrü boyunca paylaşılan oturum. */
 let session: YahooSession | null = null;
 /** Aynı anda gelen isteklerin hepsi el sıkışmasın diye tek uçuş. */
 let handshake: Promise<YahooSession | null> | null = null;
 /** Son başarısızlıktan sonra yeniden denenebilecek an. */
 let handshakeBlockedUntil = 0;
+/** Son el sıkışma denemesinin anı — sonucu ne olursa olsun. */
+let lastHandshakeAt = 0;
 
 async function ensureSession(force: boolean): Promise<YahooSession | null> {
   if (!force && session && Date.now() - session.createdAt < SESSION_TTL_MS) {
     return session;
   }
-  if (force) session = null;
 
   // Yakın zamanda başarısız olduysa çıplak isteğe düşülür.
   if (Date.now() < handshakeBlockedUntil) return null;
 
+  /* Zorlama gelse bile aralıktan önce yeniden el sıkışılmaz. Elde bir oturum
+     varsa o kullanılır; yoksa çıplak isteğe düşülür. */
+  if (
+    handshake === null &&
+    Date.now() - lastHandshakeAt < HANDSHAKE_MIN_INTERVAL_MS
+  ) {
+    return session;
+  }
+
+  if (force) session = null;
+
   /* El sıkışma sürerken gelen diğer semboller aynı sözü bekler; yoksa
      portföydeki her sembol ayrı bir el sıkışma başlatır. */
   if (!handshake) {
+    lastHandshakeAt = Date.now();
     handshake = createSession().finally(() => {
       handshake = null;
     });
@@ -97,16 +121,8 @@ async function ensureSession(force: boolean): Promise<YahooSession | null> {
 
 async function createSession(): Promise<YahooSession | null> {
   try {
-    /* 1) Çerez. Yanıt 404 olsa bile Set-Cookie gelir; `ok` kontrolü yapılmaz.
-       Yönlendirme izlenmez, çünkü çerez ilk yanıtın başlığındadır. */
-    const cookieRes = await fetch(COOKIE_URL, {
-      headers: HEADERS,
-      redirect: "manual",
-      signal: AbortSignal.timeout(10_000),
-      cache: "no-store",
-    });
-
-    const cookie = parseSetCookie(readSetCookieHeaders(cookieRes));
+    /* 1) Çerez. */
+    const cookie = await collectCookie();
     if (!cookie) return null;
 
     /* 2) Jeton. */
@@ -127,6 +143,43 @@ async function createSession(): Promise<YahooSession | null> {
   }
 }
 
+/**
+ * Çerezi toplar.
+ *
+ * `fc.yahoo.com` çoğu zaman 404 döner ve çerezi o yanıtta gönderir; ama bazı
+ * ağlarda önce bir onay/yönlendirme sayfasına atar ve çerezin bir kısmı ancak
+ * SONRAKİ adımda gelir. Referans uygulama çerez kavanozu (cookie jar) kullanıp
+ * bütün adımlardaki çerezleri biriktirdiği için bu fark görünmüyor; Node'un
+ * `fetch`'inde kavanoz yok, o yüzden yönlendirme zinciri elle yürünür ve her
+ * adımın çerezi toplanır. Yalnızca ilk yanıta bakmak, o ağlarda eksik çerez
+ * üretir ve jeton isteği reddedilir.
+ */
+async function collectCookie(maxHops = 5): Promise<string | null> {
+  const collected: string[] = [];
+  let url = COOKIE_URL;
+
+  for (let hop = 0; hop < maxHops; hop++) {
+    const carried = parseSetCookie(collected);
+    const res = await fetch(url, {
+      headers: carried ? { ...HEADERS, Cookie: carried } : HEADERS,
+      redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+
+    collected.push(...readSetCookieHeaders(res));
+
+    const location = res.headers.get("location");
+    const isRedirect = res.status >= 300 && res.status < 400 && location;
+    if (!isRedirect) break;
+
+    // Göreli konum mutlak adrese çevrilir.
+    url = new URL(location, url).toString();
+  }
+
+  return parseSetCookie(collected);
+}
+
 /** `Set-Cookie` başlıklarını okur. Node 22'de `getSetCookie()` mevcut. */
 function readSetCookieHeaders(res: Response): string[] {
   const headers = res.headers as Headers & { getSetCookie?: () => string[] };
@@ -138,12 +191,23 @@ function readSetCookieHeaders(res: Response): string[] {
 /**
  * `Set-Cookie` satırlarını `Cookie` başlığına çevirir: her satırın yalnızca
  * `ad=değer` kısmı alınır, `Path`/`Expires` gibi öznitelikler atılır.
+ *
+ * Aynı çerez birden çok adımda gelirse SONUNCUSU geçerlidir — tarayıcı da,
+ * referans uygulamadaki çerez kavanozu da böyle davranır. Aynı adı iki kez
+ * göndermek sunucuyu şaşırtır.
  */
 export function parseSetCookie(raw: string[]): string | null {
-  const pairs = raw
-    .map((line) => line.split(";")[0].trim())
-    .filter((pair) => pair.includes("=") && !pair.startsWith("="));
-  return pairs.length > 0 ? pairs.join("; ") : null;
+  const byName = new Map<string, string>();
+
+  for (const line of raw) {
+    const pair = line.split(";")[0].trim();
+    const separator = pair.indexOf("=");
+    if (separator <= 0) continue;
+    byName.set(pair.slice(0, separator), pair.slice(separator + 1));
+  }
+
+  if (byName.size === 0) return null;
+  return [...byName].map(([name, value]) => `${name}=${value}`).join("; ");
 }
 
 /**
@@ -248,6 +312,7 @@ export function resetYahooSession(): void {
   session = null;
   handshake = null;
   handshakeBlockedUntil = 0;
+  lastHandshakeAt = 0;
 }
 
 /* ─────────────────────────────── Ayrıştırma ──────────────────────────── */

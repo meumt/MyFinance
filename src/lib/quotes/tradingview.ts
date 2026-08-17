@@ -25,14 +25,21 @@ import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
 
 const COLUMNS = ["close", "change", "currency", "description"] as const;
 
-/** Pazar → TradingView tarayıcı yolu ve sembol öneki. */
-const MARKET_SCOPE: Record<string, { path: string; prefix: string }> = {
-  bist: { path: "turkey", prefix: "BIST" },
-  nasdaq: { path: "america", prefix: "NASDAQ" },
+/**
+ * Pazar → tarayıcı yolu ve olası borsa önekleri.
+ *
+ * Tarayıcı `BORSA:SEMBOL` biçimi ister; çıplak sembol boş döner. ABD'de
+ * hissenin NASDAQ'ta mı NYSE'de mi işlem gördüğü önceden bilinmediği için
+ * hepsi birden sorulur — tek istek olduğu için maliyeti yok, yanıt sade koda
+ * göre eşlendiğinden hangisi dönerse o kullanılır.
+ */
+const MARKET_SCOPE: Record<string, { path: string; prefixes: string[] }> = {
+  bist: { path: "turkey", prefixes: ["BIST"] },
+  nasdaq: { path: "america", prefixes: ["NASDAQ", "NYSE", "AMEX"] },
 };
 
 /** Bir istekte kaç sembol sorulabilir. */
-export const TRADINGVIEW_BATCH = 50;
+export const TRADINGVIEW_BATCH = 40;
 
 export async function fetchTradingViewQuotes(
   market: string,
@@ -48,10 +55,8 @@ export async function fetchTradingViewQuotes(
     }));
   }
 
-  /* NASDAQ'ta hissenin hangi borsada işlem gördüğü (NASDAQ/NYSE) önceden
-     bilinmiyor; önek olmadan gönderildiğinde tarayıcı kendi çözüyor. */
-  const tickers = symbols.map((s) =>
-    market === "bist" ? `${scope.prefix}:${s}` : s,
+  const tickers = symbols.flatMap((symbol) =>
+    scope.prefixes.map((prefix) => `${prefix}:${symbol}`),
   );
 
   let res: Response;

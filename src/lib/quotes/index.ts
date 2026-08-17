@@ -43,8 +43,15 @@ const CONCURRENCY = 2;
 /** Tek tek giden istekler arasına konan nefes. */
 const STAGGER_MS = 250;
 
-/** Sayfa açılışını kilitlememek için toplam süre bütçesi. */
-const BUDGET_MS = 8_000;
+/**
+ * Sayfa açılışını kilitlememek için toplam süre bütçesi.
+ *
+ * Zincirin tamamına yetecek kadar geniş tutulur: bütçe bir kaynağın
+ * ortasında dolarsa yedekler hiç denenmez ve kullanıcı "fiyat yok" görür
+ * — oysa yedek çalışacaktı. Tek tek istek atan kaynakların zaman aşımları
+ * bu bütçeye sığacak şekilde kısaltıldı.
+ */
+const BUDGET_MS = 20_000;
 
 /** Hata alan bir sembol hemen tekrar denenmesin diye bekleme süresi. */
 const ERROR_BACKOFF_MS = 5 * 60 * 1000;
@@ -138,6 +145,10 @@ export async function refreshQuotes(options: {
 
   const deadline = now + BUDGET_MS;
   const resolved = new Map<string, { result: FetchedQuote; source: Provider }>();
+  /** Sembol → zincirdeki her kaynağın hata mesajı. */
+  const failures = new Map<string, string[]>();
+  /** Sembol → ayrıştırılamayan son yanıtın ham örneği (alan adı teşhisi için). */
+  const rawSamples = new Map<string, string>();
 
   /* Pazarlara ayır; her pazarın kendi zinciri sırayla denenir. */
   const byMarket = new Map<string, Target[]>();
@@ -181,18 +192,27 @@ export async function refreshQuotes(options: {
         for (const target of pending) {
           const result = results.get(target.symbol.toUpperCase());
           if (!result) {
-            // Bütçe yüzünden denenmedi; sıradaki kaynağa gitmesin.
+            // Bütçe yüzünden denenmedi; sıradaki kaynağa da gitmesin.
             stillPending.push(target);
             continue;
           }
+
           if (result.ok) {
             resolved.set(target.key, { result, source: provider });
-          } else {
-            /* Başarısız: son denenen hatayı sakla ama sıradaki kaynağa da
-               şans ver. Zincir biterse en son hata yazılır. */
-            resolved.set(target.key, { result, source: provider });
-            stillPending.push(target);
+            continue;
           }
+
+          /* Başarısız. Zincirdeki HER denemenin hatası biriktirilir: yalnızca
+             ilkini saklamak "Stooq 404" yazıp yedeklerin çalışıp çalışmadığını
+             gizliyordu, oysa asıl soru zincirin nerede koptuğu. */
+          failures.set(target.key, [
+            ...(failures.get(target.key) ?? []),
+            `${provider}: ${result.error}`,
+          ]);
+          /* Ham örnek yalnızca ayrıştırma başarısız olduğunda gelir; gerçek
+             alan adını görmenin tek yolu bu, kaybolmamalı. */
+          if (result.rawSample) rawSamples.set(target.key, result.rawSample);
+          stillPending.push(target);
         }
         pending = stillPending;
       }
@@ -207,11 +227,14 @@ export async function refreshQuotes(options: {
 
   for (const target of stale) {
     const entry = resolved.get(target.key);
-    if (!entry) continue; // hiç denenmedi (bütçe)
+    const chainErrors = failures.get(target.key);
+
+    // Ne başarı ne hata: bütçe dolduğu için hiç denenmedi, kayda dokunma.
+    if (!entry && !chainErrors) continue;
 
     const previous = existing.get(target.key);
 
-    if (entry.result.ok) {
+    if (entry?.result.ok) {
       fetched++;
       bySource[entry.source] = (bySource[entry.source] ?? 0) + 1;
       await upsertQuote({
@@ -229,7 +252,11 @@ export async function refreshQuotes(options: {
       if (entry.result.name) await fillMissingNames(target, entry.result.name);
     } else {
       failed++;
-      errors.push(`${target.symbol}: ${entry.result.error}`);
+      /* Tüm zincirin hatası tek satırda: hangi kaynağın neden düştüğü
+         görülmeden sorun teşhis edilemiyor. */
+      const message = (chainErrors ?? []).join(" · ") || "Fiyat alınamadı";
+      errors.push(`${target.symbol}: ${message}`);
+
       /* Hatada eski fiyat KORUNUR: bir kesinti yüzünden portföyün değeri
          sıfıra düşmesin. Sadece hata ve zaman damgası güncellenir. */
       await upsertQuote({
@@ -241,8 +268,8 @@ export async function refreshQuotes(options: {
         previousCloseMicro: previous?.previousCloseMicro ?? null,
         asOf: previous?.asOf ?? null,
         fetchedAt: now,
-        error: entry.result.error,
-        rawSample: entry.result.rawSample ?? null,
+        error: message,
+        rawSample: rawSamples.get(target.key) ?? null,
       });
     }
   }
@@ -291,7 +318,7 @@ async function runProvider(
     if (provider === "yahoo") {
       // Yahoo Borsa İstanbul sembollerinde `.IS` ekini ister.
       const yahooSymbol = market === "bist" ? `${symbol}.IS` : symbol;
-      const result = await fetchYahooQuote(yahooSymbol);
+      const result = await fetchYahooQuote(yahooSymbol, 8_000);
       // Sonuç sade kodla eşlensin.
       return { ...result, symbol };
     }
