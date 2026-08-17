@@ -17,6 +17,7 @@ import { CheckboxField, FieldRow, NumberField, TextField } from "@/components/fi
 import { Button, Field, Input, Panel, PanelHeader, Select } from "@/components/ui";
 import { formatDateTR } from "@/lib/dates";
 import { CURRENCIES, minorToInputString } from "@/lib/money";
+import { probeFonolojiAction } from "@/app/actions/investments";
 import type { AppSettings } from "@/lib/settings";
 
 /**
@@ -81,6 +82,10 @@ export function SettingsClient({
   );
   const [syncState, syncAction] = useActionState<ActionState, FormData>(
     syncRatesAction,
+    {},
+  );
+  const [probeState, probeAction] = useActionState<ActionState, FormData>(
+    probeFonolojiAction,
     {},
   );
   const [pwState, pwAction] = useActionState<AuthState, FormData>(
@@ -316,6 +321,43 @@ export function SettingsClient({
               </div>
             </div>
 
+            {/* Yatırım fiyatları */}
+            <div className="border-t pt-4" id="yatirim">
+              <p className="mb-2 text-xs font-semibold">Yatırım fiyatları</p>
+              <TextField
+                name="fonolojiApiKey"
+                label="Fonoloji API anahtarı"
+                type="password"
+                defaultValue={settings.fonolojiApiKey}
+                hint="TEFAS fon fiyatları için. fonoloji.com/api-docs'tan ücretsiz alınır."
+              />
+              <div className="mt-3">
+                <FieldRow>
+                  <NumberField
+                    name="quoteTtlMinutes"
+                    label="Fiyat tazeliği"
+                    suffix="dk"
+                    min={1}
+                    max={1440}
+                    defaultValue={settings.quoteTtlMinutes}
+                    hint="Bu süreden eski fiyat yenilenir; kotayı korur."
+                  />
+                  <div className="flex items-end pb-2">
+                    <CheckboxField
+                      name="autoRefreshQuotes"
+                      label="Sayfa açılışında yenile"
+                      defaultChecked={settings.autoRefreshQuotes}
+                    />
+                  </div>
+                </FieldRow>
+              </div>
+              <p className="faint mt-2 text-[11px] leading-relaxed">
+                Borsa İstanbul ve NASDAQ fiyatları Yahoo Finance'ten anahtarsız
+                çekilir. Fonoloji anahtarını kaydettikten sonra aşağıdaki
+                düğmeyle sınayın: yanıtı okuyamazsak gelen JSON'u gösterir.
+              </p>
+            </div>
+
             <div className="border-t pt-4">
               <CheckboxField
                 name="autoFetchRates"
@@ -356,6 +398,29 @@ export function SettingsClient({
         <p className="faint px-4 pt-1 pb-4 text-[11px] leading-relaxed sm:px-5">
           Uyarılar arka plan servisiyle 15 dakikada bir çalışır. Aynı uyarı aynı gün
           iki kez gönderilmez.
+        </p>
+      </Panel>
+
+      {/* Fonoloji sınaması */}
+      <Panel>
+        <PanelHeader
+          title="Fonoloji bağlantısı"
+          subtitle="Bir fon kodu girip yanıtın okunabildiğini doğrulayın"
+        />
+        <form action={probeAction} className="flex flex-wrap items-end gap-2 px-4 py-4 sm:px-5">
+          <div className="min-w-32 flex-1">
+            <TextField name="code" label="Fon kodu" defaultValue="AFA" />
+          </div>
+          <Button type="submit" variant="secondary">
+            <RefreshCw size={14} />
+            Sına
+          </Button>
+        </form>
+        <Feedback state={probeState} />
+        <p className="faint px-4 pt-1 pb-4 text-[11px] leading-relaxed sm:px-5">
+          Fiyat alanı tanınmazsa gelen JSON burada görünür. O çıktıyı bana
+          iletirseniz doğru alan adını ekleyebiliriz — tahminle yanlış fiyat
+          göstermek yerine hata veriyoruz.
         </p>
       </Panel>
 

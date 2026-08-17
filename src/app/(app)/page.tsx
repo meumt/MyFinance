@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   CalendarClock,
+  ChartCandlestick,
   CreditCard,
   ListChecks,
   TrendingDown,
@@ -55,6 +56,10 @@ export default async function DashboardPage() {
   const burn = burnRate(snap);
   const loads = installmentLoad(snap, 12);
   const obligations = upcomingObligations(snap, { days: 30 });
+
+  /* Gecikmiş olan yalnızca ÖDEMELERDİR; tarihi geçmiş bir gelir borç değildir. */
+  const overdue = obligations.filter((o) => o.daysUntil < 0 && !o.isIncome);
+  const lateIncome = obligations.filter((o) => o.daysUntil < 0 && o.isIncome);
   const cashflow = cashflowProjection(snap, 60);
   const categories = categoryBreakdown(snap).slice(0, 6);
   const subs = subscriptionCosts(snap);
@@ -99,19 +104,33 @@ export default async function DashboardPage() {
         </Alert>
       ) : null}
 
-      {obligations.filter((o) => o.daysUntil < 0).length > 0 ? (
+      {/* Gecikmiş ödemeler. Gelirler DIŞARIDA bırakılır: tarihi geçmiş bir
+          maaş "gecikmiş ödeme" değildir, ödenecek bir şey yoktur. */}
+      {overdue.length > 0 ? (
         <Alert
           sensitive
           tone="gider"
-          title={`${obligations.filter((o) => o.daysUntil < 0).length} gecikmiş ödeme`}
+          title={`${overdue.length} gecikmiş ödeme`}
         >
-          {obligations
-            .filter((o) => o.daysUntil < 0)
+          {overdue
             .slice(0, 3)
-            .map(
-              (o) => `${o.label} (${formatMoney(o.amountMinor, o.currency)})`,
-            )
+            .map((o) => `${o.label} (${formatMoney(o.amountMinor, o.currency)})`)
             .join(" · ")}
+        </Alert>
+      ) : null}
+
+      {/* Tarihi geçmiş ama hesaba düşmemiş gelirler ayrı bir bilgi. */}
+      {lateIncome.length > 0 ? (
+        <Alert
+          sensitive
+          tone="brand"
+          title={`${lateIncome.length} beklenen gelir henüz görünmüyor`}
+        >
+          {lateIncome
+            .slice(0, 3)
+            .map((o) => `${o.label} (${formatMoney(o.amountMinor, o.currency)})`)
+            .join(" · ")}
+          {" — yattıysa hareket olarak girin, plan buna göre düzelir."}
         </Alert>
       ) : null}
 
@@ -121,7 +140,7 @@ export default async function DashboardPage() {
           label="Net değer"
           icon={<Wallet size={13} />}
           value={<Money minor={worth.netMinor} tone="nötr" />}
-          sub={`${formatMoney(worth.liquidMinor, "TRY", { compact: true })} varlık · ${formatMoney(worth.debtMinor, "TRY", { compact: true })} borç`}
+          sub={`${formatMoney(worth.assetMinor, "TRY", { compact: true })} varlık · ${formatMoney(worth.debtMinor, "TRY", { compact: true })} borç`}
           tone={worth.netMinor >= 0 ? "nötr" : "gider"}
           href="/hesaplar"
         />
@@ -162,6 +181,52 @@ export default async function DashboardPage() {
           href="/analiz"
         />
       </div>
+
+      {/* Yatırım özeti — kalem yoksa hiç gösterilmez */}
+      {snap.holdings.length > 0 ? (
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          <StatTile
+            label="Portföy"
+            icon={<ChartCandlestick size={13} />}
+            value={<Money minor={snap.portfolio.valueTryMinor} tone="nötr" />}
+            sub={`${snap.portfolio.items.length} kalem · maliyet ${formatMoney(snap.portfolio.costTryMinor, "TRY", { compact: true })}`}
+            href="/yatirim"
+          />
+          <StatTile
+            label="Yatırım kâr/zarar"
+            icon={<TrendingUp size={13} />}
+            value={<Money minor={snap.portfolio.gainTryMinor} signed tone="auto" />}
+            sub={
+              snap.portfolio.costTryMinor > 0
+                ? formatPercent(snap.portfolio.gainRatio, 1)
+                : "maliyet girilmedi"
+            }
+            tone={snap.portfolio.gainTryMinor >= 0 ? "gelir" : "gider"}
+            href="/yatirim"
+          />
+          <StatTile
+            label="Bugün"
+            icon={<TrendingDown size={13} />}
+            value={
+              <Money minor={snap.portfolio.dayChangeTryMinor} signed tone="auto" />
+            }
+            sub={
+              snap.portfolio.dayChangeTryMinor !== 0
+                ? formatPercent(snap.portfolio.dayChangeRatio, 2)
+                : "değişim bilinmiyor"
+            }
+            tone={snap.portfolio.dayChangeTryMinor >= 0 ? "gelir" : "gider"}
+            href="/yatirim"
+          />
+          <StatTile
+            label="Nakit"
+            icon={<Wallet size={13} />}
+            value={<Money minor={worth.liquidMinor} tone="nötr" />}
+            sub="yatırım hariç, harcanabilir"
+            href="/hesaplar"
+          />
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Yaklaşan ödemeler */}

@@ -14,7 +14,7 @@
     "notify": "NODE_OPTIONS=--conditions=react-server tsx scripts/notify.ts",
     "worker": "NODE_OPTIONS=--conditions=react-server tsx scripts/worker.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/domain.test.ts && tsx tests/ledger.test.ts",
+    "test": "tsx tests/domain.test.ts && tsx tests/ledger.test.ts && tsx tests/portfolio.test.ts && tsx tests/quotes.test.ts",
     "build:scripts": "esbuild scripts/migrate.ts scripts/seed.ts scripts/notify.ts scripts/worker.ts --bundle --platform=node --target=node22 --format=cjs --conditions=react-server --external:better-sqlite3 --outdir=dist-scripts --out-extension:.js=.cjs"
   },
   "dependencies": {

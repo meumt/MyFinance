@@ -15,6 +15,8 @@ import {
   loans,
   merchants,
   recurringItems,
+  holdings,
+  quotes,
   savingsGoals,
   subscriptions,
   transactions,
@@ -29,6 +31,8 @@ import {
   type LoanPayment,
   type Merchant,
   type RecurringItem,
+  type Holding,
+  type Quote,
   type SavingsGoal,
   type Subscription,
   type Transaction,
@@ -41,6 +45,7 @@ import {
   type AccountBalance,
   type CardLedger,
 } from "./ledger";
+import { buildPortfolio, type Portfolio } from "./portfolio";
 import { getSettings, type AppSettings } from "./settings";
 
 /**
@@ -67,6 +72,11 @@ export interface FinancialSnapshot {
   recurring: RecurringItem[];
   budgets: Budget[];
   goals: SavingsGoal[];
+  holdings: Holding[];
+  /** Fiyat önbelleği — anahtar `sağlayıcı:sembol`. */
+  quotes: Map<string, Quote>;
+  /** Değerlenmiş portföy. Fiyatı bilinmeyen kalem toplamı bozmaz. */
+  portfolio: Portfolio;
 
   balances: Map<number, AccountBalance>;
   ledgers: Map<number, CardLedger>;
@@ -98,6 +108,8 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
     budgetRows,
     goalRows,
     snapshotRows,
+    holdingRows,
+    quoteRows,
   ] = await Promise.all([
     getSettings(),
     getRatesFor(ref),
@@ -116,6 +128,8 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
     db.select().from(budgets),
     db.select().from(savingsGoals),
     db.select().from(balanceSnapshots).orderBy(desc(balanceSnapshots.date)),
+    db.select().from(holdings),
+    db.select().from(quotes),
   ]);
 
   /* Hesap bakiyeleri — her hesap için en güncel mutabakat tabanı bulunur. */
@@ -181,6 +195,17 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
     );
   }
 
+  /* Portföy değerlemesi. Fiyatlar önbellekten okunur; tazeleme sayfa
+     tarafında yapılır ki her snapshot yüklemesi ağ isteği doğurmasın. */
+  const quoteMap = new Map<string, Quote>(
+    quoteRows.map((row) => [`${row.provider}:${row.symbol}`, row]),
+  );
+  const portfolio = buildPortfolio({
+    holdings: holdingRows,
+    quotes: quoteMap,
+    rates,
+  });
+
   return {
     ref,
     settings,
@@ -199,6 +224,9 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
     recurring: recurringRows,
     budgets: budgetRows,
     goals: goalRows,
+    holdings: holdingRows,
+    quotes: quoteMap,
+    portfolio,
     balances,
     ledgers,
     categoryById: byId(categoryRows),

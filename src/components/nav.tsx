@@ -3,6 +3,7 @@
 import {
   ArrowRightLeft,
   CalendarClock,
+  ChartCandlestick,
   ChartPie,
   CreditCard,
   Ellipsis,
@@ -40,6 +41,7 @@ export const PRIMARY_NAV: NavItem[] = [
 /** "Daha fazla" menüsündeki bölümler. */
 export const SECONDARY_NAV: NavItem[] = [
   { href: "/hesaplar", label: "Hesaplar", icon: Wallet },
+  { href: "/yatirim", label: "Yatırımlar", icon: ChartCandlestick },
   { href: "/taksitler", label: "Taksitler", icon: ListChecks },
   { href: "/abonelikler", label: "Abonelikler", icon: Repeat },
   { href: "/krediler", label: "Krediler", icon: Landmark },

@@ -504,6 +504,95 @@ export const savingsGoals = sqliteTable("savings_goals", {
   notes: text("notes"),
 });
 
+/* ─────────────────────────────── Yatırımlar ──────────────────────────────── */
+
+/**
+ * Elde tutulan bir yatırım kalemi: TEFAS fonu, NASDAQ hissesi, BIST hissesi.
+ *
+ * Birimler tam sayı tutulur, ondalık asla float'a bırakılmaz:
+ *  - `quantityMicro`  : adet × 1e6 (fonlarda pay adedi kesirlidir)
+ *  - `totalCostMinor` : ödenen toplam tutar, `currency` biriminin kuruşu
+ *
+ * Toplam maliyet birim maliyet yerine saklanır: yeni alım eklendiğinde
+ * ağırlıklı ortalama yeniden hesaplanmaz, sadece toplamlar artar — böylece
+ * yuvarlama hatası birikmez.
+ */
+export const holdings = sqliteTable(
+  "holdings",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    /** fon | hisse */
+    kind: text("kind").notNull().default("hisse"),
+    /** tefas | bist | nasdaq | diger */
+    market: text("market").notNull(),
+    /** Sade kod: PHE, THYAO, AAPL. Sağlayıcıya özel ek (.IS) türetilir. */
+    symbol: text("symbol").notNull(),
+    name: text("name").notNull(),
+    /** Fiyatın kote edildiği para birimi: TEFAS/BIST için TRY, NASDAQ için USD. */
+    currency: text("currency").notNull().default("TRY"),
+
+    quantityMicro: integer("quantity_micro").notNull().default(0),
+    totalCostMinor: integer("total_cost_minor").notNull().default(0),
+    /**
+     * Cebinden çıkan TL toplamı. NASDAQ hissesini 30 TL'lik dolarla aldıysan
+     * gerçek getirin kurdaki hareketi de içerir; maliyeti bugünkü kurla
+     * yeniden değerlemek o kazancı görünmez yapar. Girilmezse bugünkü kurdan
+     * tahmin edilir ve tahmin olduğu belirtilir.
+     */
+    totalCostTryMinor: integer("total_cost_try_minor"),
+
+    /** fonoloji | yahoo | manuel */
+    provider: text("provider").notNull().default("yahoo"),
+    /** Sağlayıcı yoksa elle girilen fiyat (birim fiyat × 1e6). */
+    manualPriceMicro: integer("manual_price_micro"),
+
+    /** Hangi aracı kurumda/hesapta tutuluyor. */
+    brokerAccountId: integer("broker_account_id").references(() => accounts.id, {
+      onDelete: "set null",
+    }),
+
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    excludeFromNetWorth: integer("exclude_from_net_worth", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    color: text("color").notNull().default("#8b5cf6"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    notes: text("notes"),
+    createdAt: integer("created_at").notNull().default(now),
+  },
+  (t) => [index("holdings_symbol_idx").on(t.provider, t.symbol)],
+);
+
+/**
+ * Fiyat önbelleği. Anahtar sağlayıcı + sembol olduğu için aynı hisseyi iki
+ * ayrı hesapta tutmak ikinci bir istek doğurmaz.
+ *
+ * `priceMicro` = birim fiyat × 1e6, `currency` biriminde.
+ */
+export const quotes = sqliteTable(
+  "quotes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    provider: text("provider").notNull(),
+    symbol: text("symbol").notNull(),
+    priceMicro: integer("price_micro"),
+    currency: text("currency").notNull().default("TRY"),
+    /** Önceki kapanış — günlük değişim bundan türetilir. */
+    previousCloseMicro: integer("previous_close_micro"),
+    /** Fiyatın ait olduğu gün (YYYY-MM-DD). */
+    asOf: text("as_of"),
+    fetchedAt: integer("fetched_at").notNull().default(now),
+    /** Son denemede hata olduysa mesajı; başarıda null. */
+    error: text("error"),
+    /**
+     * Ayrıştırma başarısızsa yanıtın kırpılmış hali. Sağlayıcının alan
+     * adları değiştiğinde körlemesine tahmin etmek yerine ne döndüğü görülür.
+     */
+    rawSample: text("raw_sample"),
+  },
+  (t) => [uniqueIndex("quotes_provider_symbol_idx").on(t.provider, t.symbol)],
+);
+
 /* ────────────────────────────── Döviz Kurları ─────────────────────────────── */
 
 /** rateMicro = 1 birim dövizin TL karşılığı * 1e6 */
@@ -581,6 +670,8 @@ export type LoanPayment = typeof loanPayments.$inferSelect;
 export type RecurringItem = typeof recurringItems.$inferSelect;
 export type Budget = typeof budgets.$inferSelect;
 export type SavingsGoal = typeof savingsGoals.$inferSelect;
+export type Holding = typeof holdings.$inferSelect;
+export type Quote = typeof quotes.$inferSelect;
 export type ExchangeRate = typeof exchangeRates.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 

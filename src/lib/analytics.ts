@@ -345,13 +345,17 @@ export function subscriptionCosts(snap: FinancialSnapshot): SubscriptionCost {
 export interface NetWorth {
   /** Nakit ve mevduat toplamı (TL karşılığı). */
   liquidMinor: number;
+  /** Yatırımların güncel değeri (fon, hisse). Nakit DEĞİLDİR. */
+  investmentMinor: number;
+  /** Nakit + yatırım. */
+  assetMinor: number;
   /** Kart borçları + krediler + ek hesap kullanımı. */
   debtMinor: number;
   cardDebtMinor: number;
   loanDebtMinor: number;
   overdraftMinor: number;
   netMinor: number;
-  /** Ek hesap dahil harcanabilir tutar. */
+  /** Ek hesap dahil harcanabilir tutar. Yatırımlar buna girmez. */
   spendableMinor: number;
 }
 
@@ -392,13 +396,24 @@ export function netWorth(snap: FinancialSnapshot): NetWorth {
 
   const debt = cardDebt + loanDebt + overdraft;
 
+  /* Yatırımlar net değere girer ama harcanabilir tutara GİRMEZ: bir fonu
+     bugün satıp yarın kart borcunu ödeyemezsin, valör vardır. Plan ekranı da
+     bu yüzden yalnızca nakitle yürür. */
+  let investment = 0;
+  for (const item of snap.portfolio.items) {
+    if (item.holding.excludeFromNetWorth) continue;
+    investment += item.valueTryMinor ?? 0;
+  }
+
   return {
     liquidMinor: liquid,
+    investmentMinor: investment,
+    assetMinor: liquid + investment,
     debtMinor: debt,
     cardDebtMinor: cardDebt,
     loanDebtMinor: loanDebt,
     overdraftMinor: overdraft,
-    netMinor: liquid - debt,
+    netMinor: liquid + investment - debt,
     spendableMinor: spendable,
   };
 }

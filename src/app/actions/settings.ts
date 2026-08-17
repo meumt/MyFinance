@@ -47,6 +47,12 @@ export async function saveSettingsAction(
         ),
         lowBalanceThresholdMinor: money(form, "lowBalanceThreshold") ?? 0,
         livingCostMinor: money(form, "livingCost") ?? current.livingCostMinor,
+        fonolojiApiKey: str(form, "fonolojiApiKey"),
+        quoteTtlMinutes: Math.min(
+          1440,
+          Math.max(1, Math.round(num(form, "quoteTtlMinutes", 15))),
+        ),
+        autoRefreshQuotes: bool(form, "autoRefreshQuotes"),
         cardMonthlyRateBps: Math.round((optionalNum(form, "cardMonthlyRate") ?? 4.25) * 100),
         overdraftDefaultAnnualRateBps: Math.round(
           (optionalNum(form, "overdraftDefaultAnnualRate") ?? 60) * 100,

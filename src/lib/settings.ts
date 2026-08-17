@@ -30,6 +30,14 @@ export interface AppSettings {
    */
   livingCostMinor: number;
 
+  /* ── Yatırım fiyatları ── */
+  /** Fonoloji (TEFAS) API anahtarı. Boşsa fon fiyatları çekilmez. */
+  fonolojiApiKey: string;
+  /** Fiyat bu süreden eskiyse yenilenir. Kotayı korur. */
+  quoteTtlMinutes: number;
+  /** Panel/yatırım sayfası açıldığında bayat fiyatlar kendiliğinden yenilensin. */
+  autoRefreshQuotes: boolean;
+
   ntfyEnabled: boolean;
   ntfyServer: string;
   ntfyTopic: string;
@@ -65,6 +73,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   cardMonthlyRateBps: 425, // %4,25 / ay
   overdraftDefaultAnnualRateBps: 6000, // %60 / yıl
   livingCostMinor: 0,
+
+  fonolojiApiKey: "",
+  quoteTtlMinutes: 15,
+  autoRefreshQuotes: true,
 
   ntfyEnabled: false,
   ntfyServer: "https://ntfy.sh",
@@ -144,6 +156,7 @@ export function maskSecrets(s: AppSettings): AppSettings {
     ntfyToken: mask(s.ntfyToken),
     telegramBotToken: mask(s.telegramBotToken),
     smtpPassword: mask(s.smtpPassword),
+    fonolojiApiKey: mask(s.fonolojiApiKey),
   };
 }
 
@@ -153,7 +166,12 @@ export function unmaskPatch(
   current: AppSettings,
 ): Partial<AppSettings> {
   const out = { ...patch };
-  const keys = ["ntfyToken", "telegramBotToken", "smtpPassword"] as const;
+  const keys = [
+    "ntfyToken",
+    "telegramBotToken",
+    "smtpPassword",
+    "fonolojiApiKey",
+  ] as const;
   for (const k of keys) {
     if (out[k] === "••••••••") out[k] = current[k];
   }
