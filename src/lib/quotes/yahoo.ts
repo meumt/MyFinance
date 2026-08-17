@@ -4,26 +4,34 @@ import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
 /**
  * Yahoo Finance grafik uç noktası.
  *
- * `/v8/finance/chart/<sembol>` anahtar istemez ve hem NASDAQ (AAPL) hem Borsa
- * İstanbul (THYAO.IS) sembollerini kapsar. Eski `/v7/finance/quote` uç noktası
- * çerez + crumb istediği için kullanılmaz.
+ * `/v8/finance/chart/<sembol>` hem NASDAQ (AAPL) hem Borsa İstanbul
+ * (THYAO.IS) sembollerini kapsar ve API anahtarı istemez. Veri 15 dakikaya
+ * kadar gecikmeli olabilir; portföy takibi için yeterli.
  *
- * Veri 15 dakikaya kadar gecikmeli olabilir; portföy takibi için yeterli.
+ * ── Hız sınırı ve oturum ──────────────────────────────────────────────
  *
- * HIZ SINIRI: Yahoo kısa sürede gelen istekleri IP bazında 429 ile geri
- * çevirir. Buna karşı üç şey yapılır:
- *  1. İstekler tarayıcı başlıklarıyla gönderilir (başlıksız istek daha çabuk
- *     sınırlanır),
- *  2. 429 alınırsa kısa bir bekleyişle ikinci sunucu (query2) denenir —
- *     sınırlama çoğu zaman tek sunucuya özgüdür,
- *  3. Yine olmazsa hata `RATE_LIMIT_PREFIX` ile işaretlenir; çağıran katman
- *     o sembolü uzun süre yeniden denemez.
+ * Çıplak istekler bir süre çalışıp sonra 429 ile geri çevrilmeye başlıyor.
+ * Yahoo aslında bir oturum bekliyor; üç adımlık el sıkışma bunu kuruyor:
+ *
+ *   1. `fc.yahoo.com`'a GET — 404 dönse bile `Set-Cookie` gönderir,
+ *   2. O çerezle `/v1/test/getcrumb` — kısa bir jeton (crumb) döner,
+ *   3. Chart isteğine çerez + `crumb` parametresi eklenir.
+ *
+ * Oturum süreç ömrü boyunca (en çok bir saat) saklanır: portföydeki her
+ * sembol için yeniden el sıkışmak, sınıra takılmanın kendisi olurdu.
+ *
+ * El sıkışma kurulamazsa çıplak isteğe düşülür — birçok ağda o da çalışıyor.
+ * Yine 429 gelirse hata `RATE_LIMIT_PREFIX` ile işaretlenir ve çağıran katman
+ * o sembolü uzun süre yeniden denemez.
  */
 
 const HOSTS = [
   "https://query1.finance.yahoo.com",
   "https://query2.finance.yahoo.com",
 ];
+
+const COOKIE_URL = "https://fc.yahoo.com";
+const CRUMB_PATH = "/v1/test/getcrumb";
 
 /** Tarayıcı görünümlü başlıklar — çıplak istekler daha çabuk sınırlanıyor. */
 const HEADERS: Record<string, string> = {
@@ -34,22 +42,150 @@ const HEADERS: Record<string, string> = {
   Referer: "https://finance.yahoo.com/",
 };
 
+/* ──────────────────────────────── Oturum ─────────────────────────────── */
+
+interface YahooSession {
+  cookie: string;
+  crumb: string;
+  createdAt: number;
+}
+
+const SESSION_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * El sıkışma başarısız olursa bir süre yeniden denenmez.
+ *
+ * Bu olmazsa her sembol kendi el sıkışmasını başlatır: 20 sembollük bir
+ * portföyde 40 ekstra istek eder ve sınıra takılmayı önlemek için eklenen
+ * mekanizma sınıra takılmanın sebebi olur.
+ */
+const HANDSHAKE_BACKOFF_MS = 5 * 60 * 1000;
+
+/** Süreç ömrü boyunca paylaşılan oturum. */
+let session: YahooSession | null = null;
+/** Aynı anda gelen isteklerin hepsi el sıkışmasın diye tek uçuş. */
+let handshake: Promise<YahooSession | null> | null = null;
+/** Son başarısızlıktan sonra yeniden denenebilecek an. */
+let handshakeBlockedUntil = 0;
+
+async function ensureSession(force: boolean): Promise<YahooSession | null> {
+  if (!force && session && Date.now() - session.createdAt < SESSION_TTL_MS) {
+    return session;
+  }
+  if (force) session = null;
+
+  // Yakın zamanda başarısız olduysa çıplak isteğe düşülür.
+  if (Date.now() < handshakeBlockedUntil) return null;
+
+  /* El sıkışma sürerken gelen diğer semboller aynı sözü bekler; yoksa
+     portföydeki her sembol ayrı bir el sıkışma başlatır. */
+  if (!handshake) {
+    handshake = createSession().finally(() => {
+      handshake = null;
+    });
+  }
+
+  const created = await handshake;
+  if (created) {
+    session = created;
+    handshakeBlockedUntil = 0;
+  } else {
+    handshakeBlockedUntil = Date.now() + HANDSHAKE_BACKOFF_MS;
+  }
+  return created;
+}
+
+async function createSession(): Promise<YahooSession | null> {
+  try {
+    /* 1) Çerez. Yanıt 404 olsa bile Set-Cookie gelir; `ok` kontrolü yapılmaz.
+       Yönlendirme izlenmez, çünkü çerez ilk yanıtın başlığındadır. */
+    const cookieRes = await fetch(COOKIE_URL, {
+      headers: HEADERS,
+      redirect: "manual",
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+
+    const cookie = parseSetCookie(readSetCookieHeaders(cookieRes));
+    if (!cookie) return null;
+
+    /* 2) Jeton. */
+    const crumbRes = await fetch(`${HOSTS[0]}${CRUMB_PATH}`, {
+      headers: { ...HEADERS, Cookie: cookie },
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+    if (!crumbRes.ok) return null;
+
+    const crumb = (await crumbRes.text()).trim();
+    if (!isValidCrumb(crumb)) return null;
+
+    return { cookie, crumb, createdAt: Date.now() };
+  } catch {
+    // El sıkışma başarısızsa çıplak isteğe düşülür; bu ölümcül değil.
+    return null;
+  }
+}
+
+/** `Set-Cookie` başlıklarını okur. Node 22'de `getSetCookie()` mevcut. */
+function readSetCookieHeaders(res: Response): string[] {
+  const headers = res.headers as Headers & { getSetCookie?: () => string[] };
+  if (typeof headers.getSetCookie === "function") return headers.getSetCookie();
+  const single = res.headers.get("set-cookie");
+  return single ? [single] : [];
+}
+
+/**
+ * `Set-Cookie` satırlarını `Cookie` başlığına çevirir: her satırın yalnızca
+ * `ad=değer` kısmı alınır, `Path`/`Expires` gibi öznitelikler atılır.
+ */
+export function parseSetCookie(raw: string[]): string | null {
+  const pairs = raw
+    .map((line) => line.split(";")[0].trim())
+    .filter((pair) => pair.includes("=") && !pair.startsWith("="));
+  return pairs.length > 0 ? pairs.join("; ") : null;
+}
+
+/**
+ * Jeton kısa bir alfanümerik dizedir (örn. `aaBBccDD123`).
+ * Captcha/HTML sayfası dönerse buradan geçmemeli — yoksa her isteğe
+ * anlamsız bir crumb eklenir ve hepsi reddedilir.
+ */
+export function isValidCrumb(value: string): boolean {
+  if (value.length === 0 || value.length > 64) return false;
+  if (/[<>\s]/.test(value)) return false;
+  return true;
+}
+
+/* ─────────────────────────────── İstek ───────────────────────────────── */
+
 export async function fetchYahooQuote(
   symbol: string,
   timeoutMs = 15_000,
 ): Promise<FetchedQuote> {
+  /* İki deneme: önce eldeki oturumla, sınıra takılırsa yeni oturum + ikinci
+     sunucu. Sınırlama çoğu zaman tek sunucuya ya da bayat jetona özgü. */
+  const attempts = [
+    { host: HOSTS[0], refreshSession: false },
+    { host: HOSTS[1], refreshSession: true },
+  ];
+
   let lastError = `Yahoo yanıt vermedi: ${symbol}`;
 
-  for (let attempt = 0; attempt < HOSTS.length; attempt++) {
-    /* İkinci denemeden önce kısa bir nefes: sınırlama anlıksa geçer. */
-    if (attempt > 0) await sleep(700);
+  for (let i = 0; i < attempts.length; i++) {
+    const { host, refreshSession } = attempts[i];
+    if (i > 0) await sleep(700);
 
-    const url = `${HOSTS[attempt]}/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+    const active = await ensureSession(refreshSession);
+
+    const params = new URLSearchParams({ interval: "1d", range: "5d" });
+    if (active) params.set("crumb", active.crumb);
+    const url = `${host}/v8/finance/chart/${encodeURIComponent(symbol)}?${params}`;
 
     let res: Response;
     try {
       res = await fetch(url, {
-        headers: HEADERS,
+        headers: active ? { ...HEADERS, Cookie: active.cookie } : HEADERS,
         signal: AbortSignal.timeout(timeoutMs),
         cache: "no-store",
       });
@@ -59,7 +195,16 @@ export async function fetchYahooQuote(
       continue;
     }
 
+    /* 401/403: jeton bayatlamış olabilir — sonraki deneme yenisini kurar. */
+    if (res.status === 401 || res.status === 403) {
+      session = null;
+      lastError = `Yahoo oturumu reddetti (${res.status})`;
+      continue;
+    }
+
     if (res.status === 429) {
+      // Bayat oturum da sebep olabilir; sonraki denemede yenilensin.
+      session = null;
       lastError = `${RATE_LIMIT_PREFIX}: Yahoo çok fazla istek aldı (429). Fiyat bir süre sonra kendiliğinden yenilenecek.`;
       continue;
     }
@@ -74,10 +219,20 @@ export async function fetchYahooQuote(
       continue;
     }
 
+    const text = await res.text();
+
+    /* Captcha/engel sayfası HTML döner. JSON ayrıştırma hatasını "bozuk
+       yanıt" diye geçmek yerine ne olduğu söylenir. */
+    if (text.trimStart().startsWith("<")) {
+      session = null;
+      lastError = `${RATE_LIMIT_PREFIX}: Yahoo JSON yerine engel sayfası döndürdü.`;
+      continue;
+    }
+
     try {
-      return parseYahooBody((await res.json()) as Json, symbol);
+      return parseYahooBody(JSON.parse(text) as Json, symbol);
     } catch {
-      return { symbol, ok: false, error: "Yanıt JSON değil" };
+      return { symbol, ok: false, error: "Yanıt JSON olarak okunamadı" };
     }
   }
 
@@ -87,6 +242,15 @@ export async function fetchYahooQuote(
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** Testlerin oturumu sıfırlayabilmesi için. */
+export function resetYahooSession(): void {
+  session = null;
+  handshake = null;
+  handshakeBlockedUntil = 0;
+}
+
+/* ─────────────────────────────── Ayrıştırma ──────────────────────────── */
 
 /**
  * Yanıt gövdesini okur. Ağdan ayrıldı ki gerçek bir Yahoo yanıtıyla

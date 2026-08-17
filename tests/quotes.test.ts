@@ -7,7 +7,11 @@
  */
 import { parseFonolojiBody } from "../src/lib/quotes/fonoloji";
 import { toISODate, toNumber } from "../src/lib/quotes/parse";
-import { parseYahooBody } from "../src/lib/quotes/yahoo";
+import {
+  isValidCrumb,
+  parseSetCookie,
+  parseYahooBody,
+} from "../src/lib/quotes/yahoo";
 
 let failed = 0;
 let passed = 0;
@@ -151,6 +155,35 @@ eq(garbage.ok, false, "tanınmayan gövde hata verir");
 if (!garbage.ok) {
   eq(typeof garbage.rawSample, "string", "teşhis için ham örnek saklanır");
 }
+
+group("Yahoo — çerez/jeton el sıkışması");
+
+/* fc.yahoo.com'un gerçekte gönderdiği biçim: birden çok Set-Cookie satırı,
+   her biri öznitelikleriyle. Cookie başlığına yalnızca ad=değer girer. */
+eq(
+  parseSetCookie([
+    "A1=d=AQABBHc; Expires=Tue, 17 Aug 2027 00:00:00 GMT; Max-Age=31557600; Domain=.yahoo.com; Path=/; HttpOnly; Secure; SameSite=Lax",
+    "A3=d=AQABBXy; Path=/; Secure",
+  ]),
+  "A1=d=AQABBHc; A3=d=AQABBXy",
+  "öznitelikler atılır, ad=değer çiftleri birleşir",
+);
+eq(parseSetCookie([]), null, "çerez yoksa null");
+eq(parseSetCookie(["; Path=/"]), null, "ad=değer içermeyen satır atılır");
+eq(
+  parseSetCookie(["A1=abc; Path=/", "geçersiz", "B2=def"]),
+  "A1=abc; B2=def",
+  "bozuk satır diğerlerini bozmaz",
+);
+
+/* Jeton kısa ve alfanümeriktir; captcha/HTML sayfası buradan geçmemeli,
+   yoksa her isteğe anlamsız bir crumb eklenir ve hepsi reddedilir. */
+eq(isValidCrumb("aaBBccDD123"), true, "normal jeton");
+eq(isValidCrumb("Ml9.J/8kQ2z"), true, "noktalama içeren jeton");
+eq(isValidCrumb(""), false, "boş jeton geçersiz");
+eq(isValidCrumb("<!DOCTYPE html><html>"), false, "HTML sayfası jeton değil");
+eq(isValidCrumb("Too many requests"), false, "boşluklu metin jeton değil");
+eq(isValidCrumb("x".repeat(65)), false, "aşırı uzun dize jeton değil");
 
 /* ─────────────────────────── Fonoloji yanıtı ─────────────────────────── */
 group("Fonoloji — alan adı varyantları");
