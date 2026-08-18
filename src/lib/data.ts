@@ -204,6 +204,7 @@ export async function loadSnapshot(ref: ISODate = today()): Promise<FinancialSna
     holdings: holdingRows,
     quotes: quoteMap,
     rates,
+    useExtendedHours: settings.useExtendedHours,
   });
 
   return {

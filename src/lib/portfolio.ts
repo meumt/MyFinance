@@ -116,7 +116,11 @@ export const MARKET_CURRENCY: Record<Market, string> = {
 export const MARKET_CHAIN: Record<Market, Provider[]> = {
   tefas: ["fonoloji"],
   bist: ["tradingview", "yahoo"],
-  nasdaq: ["stooq", "tradingview", "yahoo"],
+  /* TradingView başta: hem toplu çalışıyor hem de ABD'de seans öncesi /
+     seans sonrası fiyatı veren tek kaynak. Stooq sona alındı — bazı ağlardan
+     ısrarla 404 dönüyor ve başta olduğunda her yenilemede boşa istek oluyor;
+     yine de zincirde kalıyor, diğer ikisi düşerse işe yarar. */
+  nasdaq: ["tradingview", "yahoo", "stooq"],
   diger: [],
 };
 
@@ -155,6 +159,14 @@ export interface HoldingView {
   holding: Holding;
   /** Birim fiyat (× 1e6), kote para biriminde. Bilinmiyorsa null. */
   priceMicro: number | null;
+  /** Seans dışı (pre-market / after-hours) fiyat — varsa. */
+  extendedPriceMicro: number | null;
+  /** Seans dışı değişim oranı (0-1 arası, işaretli). */
+  extendedChangeRatio: number | null;
+  /** oncesi | sonrasi */
+  extendedSession: string | null;
+  /** Değerlemede seans dışı fiyat mı kullanıldı. */
+  usesExtendedPrice: boolean;
   /** Elle girilmiş fiyat mı kullanıldı. */
   isManualPrice: boolean;
   /** Kote para biriminde değer ve maliyet. */
@@ -213,6 +225,15 @@ export interface PortfolioInput {
   /** quoteKey() → Quote */
   quotes: Map<string, Quote>;
   rates: RateMap;
+  /**
+   * Değerleme seans dışı fiyatı kullansın mı?
+   *
+   * Varsayılan kapalıdır: seans dışı işlem hacmi ince olduğu için birkaç
+   * lotluk emir portföy toplamını oynatabilir ve aracı kurum ekstresiyle
+   * uyuşmaz. Kapalıyken seans dışı fiyat yine gösterilir, sadece toplama
+   * girmez.
+   */
+  useExtendedHours?: boolean;
 }
 
 export function buildPortfolio(input: PortfolioInput): Portfolio {
@@ -229,9 +250,17 @@ export function buildPortfolio(input: PortfolioInput): Portfolio {
     /* Elle girilen fiyat sağlayıcıdan gelene tercih edilir: kullanıcı
        bilinçli olarak yazmıştır ve sağlayıcı o sembolü tanımıyor olabilir. */
     const isManual = holding.provider === "manuel" || holding.manualPriceMicro != null;
+
+    /* Seans dışı fiyat yalnızca ayar açıkken değerlemeye girer. */
+    const extendedPriceMicro = quote?.extendedPriceMicro ?? null;
+    const useExtended =
+      !isManual && (input.useExtendedHours ?? false) && extendedPriceMicro !== null;
+
+    const providerPrice = useExtended ? extendedPriceMicro : (quote?.priceMicro ?? null);
+
     const priceMicro = isManual
-      ? (holding.manualPriceMicro ?? quote?.priceMicro ?? null)
-      : (quote?.priceMicro ?? holding.manualPriceMicro ?? null);
+      ? (holding.manualPriceMicro ?? providerPrice ?? null)
+      : (providerPrice ?? holding.manualPriceMicro ?? null);
 
     const quoteCurrency = quote?.currency ?? holding.currency;
 
@@ -290,6 +319,11 @@ export function buildPortfolio(input: PortfolioInput): Portfolio {
     items.push({
       holding,
       priceMicro,
+      extendedPriceMicro,
+      extendedChangeRatio:
+        quote?.extendedChangeBps != null ? quote.extendedChangeBps / 10_000 : null,
+      extendedSession: quote?.extendedSession ?? null,
+      usesExtendedPrice: useExtended,
       isManualPrice: isManual && holding.manualPriceMicro != null,
       valueMinor,
       costMinor: holding.totalCostMinor,

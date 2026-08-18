@@ -351,10 +351,19 @@ export function SettingsClient({
                   </div>
                 </FieldRow>
               </div>
+              <div className="mt-3">
+                <CheckboxField
+                  name="useExtendedHours"
+                  label="Seans dışı fiyatları değerlemeye kat"
+                  hint="ABD hisselerinde seans öncesi / sonrası fiyat. Kapalıyken yine gösterilir, sadece portföy toplamına girmez."
+                  defaultChecked={settings.useExtendedHours}
+                />
+              </div>
               <p className="faint mt-2 text-[11px] leading-relaxed">
-                Borsa İstanbul ve NASDAQ fiyatları Yahoo Finance'ten anahtarsız
-                çekilir. Fonoloji anahtarını kaydettikten sonra aşağıdaki
-                düğmeyle sınayın: yanıtı okuyamazsak gelen JSON'u gösterir.
+                Borsa İstanbul ve NASDAQ fiyatları TradingView'den anahtarsız
+                çekilir, Yahoo ve Stooq yedektir. Fonoloji anahtarını
+                kaydettikten sonra aşağıdaki düğmeyle sınayın: yanıtı
+                okuyamazsak gelen JSON'u gösterir.
               </p>
             </div>
 

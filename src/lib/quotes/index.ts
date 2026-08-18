@@ -244,6 +244,9 @@ export async function refreshQuotes(options: {
         priceMicro: entry.result.priceMicro,
         currency: entry.result.currency,
         previousCloseMicro: entry.result.previousCloseMicro,
+        extendedPriceMicro: entry.result.extended?.priceMicro ?? null,
+        extendedChangeBps: entry.result.extended?.changeBps ?? null,
+        extendedSession: entry.result.extended?.session ?? null,
         asOf: entry.result.asOf,
         fetchedAt: now,
         error: null,
@@ -266,6 +269,9 @@ export async function refreshQuotes(options: {
         priceMicro: previous?.priceMicro ?? null,
         currency: previous?.currency ?? "TRY",
         previousCloseMicro: previous?.previousCloseMicro ?? null,
+        extendedPriceMicro: previous?.extendedPriceMicro ?? null,
+        extendedChangeBps: previous?.extendedChangeBps ?? null,
+        extendedSession: previous?.extendedSession ?? null,
         asOf: previous?.asOf ?? null,
         fetchedAt: now,
         error: message,
@@ -357,6 +363,9 @@ async function upsertQuote(row: {
   priceMicro: number | null;
   currency: string;
   previousCloseMicro: number | null;
+  extendedPriceMicro: number | null;
+  extendedChangeBps: number | null;
+  extendedSession: string | null;
   asOf: string | null;
   fetchedAt: number;
   error: string | null;
@@ -372,6 +381,9 @@ async function upsertQuote(row: {
         priceMicro: row.priceMicro,
         currency: row.currency,
         previousCloseMicro: row.previousCloseMicro,
+        extendedPriceMicro: row.extendedPriceMicro,
+        extendedChangeBps: row.extendedChangeBps,
+        extendedSession: row.extendedSession,
         asOf: row.asOf,
         fetchedAt: row.fetchedAt,
         error: row.error,

@@ -1,5 +1,9 @@
 import { pickDate, pickNumber, rawSampleOf, toPriceMicro, type Json } from "./parse";
-import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
+import {
+  RATE_LIMIT_PREFIX,
+  type ExtendedSessionQuote,
+  type FetchedQuote,
+} from "./types";
 
 /**
  * Yahoo Finance grafik uç noktası.
@@ -379,7 +383,41 @@ export function parseYahooBody(body: Json, symbol: string): FetchedQuote {
     currency,
     asOf: pickDate(meta, ["regularMarketTime"]),
     name,
+    extended: readYahooExtended(meta, price),
   };
+}
+
+/**
+ * Yahoo'nun seans dışı fiyatı.
+ *
+ * `chart` uç noktasının `meta` alanı seans dışı fiyatı doğrudan vermez ama
+ * `postMarketPrice` / `preMarketPrice` alanları geldiğinde okunur. Değişim
+ * oranı normal seans kapanışına göre hesaplanır — TradingView'in tanımıyla
+ * aynı taban, böylece iki kaynak arasında sayı değişmez.
+ */
+function readYahooExtended(
+  meta: Json,
+  regularPrice: number | null,
+): ExtendedSessionQuote | null {
+  const candidates: Array<{ session: "sonrasi" | "oncesi"; field: string }> = [
+    { session: "sonrasi", field: "postMarketPrice" },
+    { session: "oncesi", field: "preMarketPrice" },
+  ];
+
+  for (const candidate of candidates) {
+    const value = pickNumber(meta, [candidate.field]);
+    const priceMicro = toPriceMicro(value);
+    if (priceMicro === null) continue;
+
+    const changeBps =
+      regularPrice !== null && regularPrice > 0 && value !== null
+        ? Math.round(((value - regularPrice) / regularPrice) * 10_000)
+        : null;
+
+    return { priceMicro, changeBps, session: candidate.session };
+  }
+
+  return null;
 }
 
 function readPath(root: Json, path: string): Json {

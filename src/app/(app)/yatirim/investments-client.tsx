@@ -85,6 +85,11 @@ export interface HoldingRow {
   quoteError: string | null;
   /** Fiyatı veren kaynak: tradingview | stooq | yahoo | fonoloji */
   source: string | null;
+  /** Seans dışı fiyat (pre-market / after-hours). */
+  extendedPriceMicro: number | null;
+  extendedChangeRatio: number | null;
+  extendedSession: string | null;
+  usesExtendedPrice: boolean;
 }
 
 export interface Totals {
@@ -110,12 +115,14 @@ export function InvestmentsClient({
   byMarket,
   accounts,
   hasFonolojiKey,
+  useExtendedHours,
 }: {
   rows: HoldingRow[];
   totals: Totals;
   byMarket: PortfolioGroup[];
   accounts: Option[];
   hasFonolojiKey: boolean;
+  useExtendedHours: boolean;
 }) {
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<HoldingRow | null>(null);
@@ -374,6 +381,25 @@ export function InvestmentsClient({
                   </Gizli>
                 ) : null}
 
+                {row.extendedPriceMicro != null ? (
+                  <Gizli
+                    className={`mt-1 block text-[10px] ${
+                      (row.extendedChangeRatio ?? 0) >= 0
+                        ? "text-gelir"
+                        : "text-gider"
+                    }`}
+                  >
+                    {row.extendedSession === "oncesi"
+                      ? "seans öncesi"
+                      : "seans sonrası"}{" "}
+                    {formatUnitPrice(row.extendedPriceMicro, row.currency)}
+                    {row.extendedChangeRatio != null
+                      ? ` (${formatPercent(row.extendedChangeRatio, 2)})`
+                      : ""}
+                    {row.usesExtendedPrice ? " · değerlemede" : ""}
+                  </Gizli>
+                ) : null}
+
                 {row.dayChangeRatio != null ? (
                   <Gizli
                     className={`mt-1 block text-[10px] ${row.dayChangeRatio >= 0 ? "text-gelir" : "text-gider"}`}
@@ -430,6 +456,14 @@ export function InvestmentsClient({
               </li>
             ))}
           </ul>
+          <p className="mt-1.5">
+            ABD hisselerinde seans öncesi / seans sonrası fiyat da çekilir
+            (normal seans Türkiye saatiyle 16:30-23:00). Varsayılan olarak
+            yalnızca <strong>gösterilir</strong>, portföy toplamına girmez:
+            seans dışı işlem hacmi ince olduğu için birkaç lotluk emir toplamı
+            oynatır ve aracı kurum ekstresiyle uyuşmaz. Değerlemeye katmak
+            isterseniz Ayarlar → Yatırım'dan açabilirsiniz.
+          </p>
           <p className="mt-1.5">
             Fiyatlar önbelleklenir, sayfayı her açışta yeniden istek atılmaz.
             Veriler 15 dakikaya kadar gecikmeli olabilir; işlem kararı için

@@ -411,6 +411,87 @@ const tvNyse = parseTradingViewBody(
 );
 eq(tvNyse[0].ok, true, "NYSE öneki ile dönen hisse de eşlenir");
 
+group("TradingView — seans dışı (pre-market / after-hours)");
+
+/* ABD isteğinde sütunlar: base + extended. `d` dizisi bu sırayı izler. */
+const US_COLUMNS = [
+  "close",
+  "change",
+  "currency",
+  "description",
+  "premarket_close",
+  "premarket_change",
+  "postmarket_close",
+  "postmarket_change",
+];
+
+/* Seans öncesi: normal kapanış 231,40 · seans öncesi 233,50 (+%0,91) */
+const preBody = {
+  data: [
+    {
+      s: "NASDAQ:TTWO",
+      d: [231.4, 0.85, "USD", "TAKE-TWO", 233.5, 0.9075, null, null],
+    },
+  ],
+};
+const pre = parseTradingViewBody(preBody, ["TTWO"], US_COLUMNS);
+eq(pre[0].ok, true, "okunur");
+if (pre[0].ok) {
+  eq(pre[0].priceMicro, 231_400_000, "değerleme fiyatı NORMAL seans kapanışı");
+  eq(pre[0].extended?.session, "oncesi", "seans öncesi olarak işaretlenir");
+  eq(pre[0].extended?.priceMicro, 233_500_000, "seans öncesi fiyat");
+  eq(pre[0].extended?.changeBps, 91, "%0,9075 → 91 baz puan");
+}
+
+/* Seans sonrası doluysa o tercih edilir: normal seans kapandıktan sonra
+   gelen veri daha yenidir. */
+const postBody = {
+  data: [
+    {
+      s: "NASDAQ:TTWO",
+      d: [231.4, 0.85, "USD", "TAKE-TWO", 229.0, -1.0, 232.8, 0.605],
+    },
+  ],
+};
+const post = parseTradingViewBody(postBody, ["TTWO"], US_COLUMNS);
+if (post[0].ok) {
+  eq(post[0].extended?.session, "sonrasi", "ikisi doluysa seans sonrası kazanır");
+  eq(post[0].extended?.priceMicro, 232_800_000, "seans sonrası fiyat");
+}
+
+/* Seans dışı veri yoksa null — TradingView'e göre bu normaldir, hata değil. */
+const noExt = parseTradingViewBody(
+  { data: [{ s: "NASDAQ:TTWO", d: [231.4, 0.85, "USD", "TAKE-TWO", null, null, null, null] }] },
+  ["TTWO"],
+  US_COLUMNS,
+);
+if (noExt[0].ok) {
+  eq(noExt[0].extended, null, "seans dışı veri yoksa null");
+  eq(noExt[0].priceMicro, 231_400_000, "normal fiyat etkilenmez");
+}
+
+/* Temel sütunlarla (BIST) istendiğinde seans dışı alanı hiç aranmaz. */
+const bistOnly = parseTradingViewBody(
+  { data: [{ s: "BIST:THYAO", d: [312.75, 1.3776, "TRY", "THY"] }] },
+  ["THYAO"],
+);
+if (bistOnly[0].ok) {
+  eq(bistOnly[0].extended, null, "BIST'te seans dışı yok");
+  eq(bistOnly[0].priceMicro, 312_750_000, "BIST fiyatı bozulmaz");
+}
+
+/* Sütun sırası değişirse konum istenen listeden okunur, sabit varsayılmaz. */
+const shuffled = parseTradingViewBody(
+  { data: [{ s: "NASDAQ:TTWO", d: ["USD", 231.4, 233.5] }] },
+  ["TTWO"],
+  ["currency", "close", "premarket_close"],
+);
+if (shuffled[0].ok) {
+  eq(shuffled[0].priceMicro, 231_400_000, "farklı sütun sırasında fiyat doğru");
+  eq(shuffled[0].currency, "USD", "para birimi doğru");
+  eq(shuffled[0].extended?.priceMicro, 233_500_000, "seans öncesi doğru");
+}
+
 group("TradingView — bozuk yanıt");
 
 const tvGarbage = parseTradingViewBody({ hata: "beklenmedik" }, ["THYAO"]);

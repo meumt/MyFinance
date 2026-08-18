@@ -58,6 +58,10 @@ export default async function InvestmentsPage() {
     source:
       snap.quotes.get(`${item.holding.market}:${item.holding.symbol}`)?.source ??
       null,
+    extendedPriceMicro: item.extendedPriceMicro,
+    extendedChangeRatio: item.extendedChangeRatio,
+    extendedSession: item.extendedSession,
+    usesExtendedPrice: item.usesExtendedPrice,
   }));
 
   return (
@@ -80,6 +84,7 @@ export default async function InvestmentsPage() {
         .filter((a) => a.isActive)
         .map((a) => ({ value: a.id, label: a.name }))}
       hasFonolojiKey={snap.settings.fonolojiApiKey.length > 0}
+      useExtendedHours={snap.settings.useExtendedHours}
     />
   );
 }

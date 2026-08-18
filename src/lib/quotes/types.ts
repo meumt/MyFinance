@@ -7,6 +7,16 @@
  */
 export const RATE_LIMIT_PREFIX = "Hız sınırı";
 
+/** Seans dışı fiyat bilgisi. */
+export interface ExtendedSessionQuote {
+  /** Seans dışı son fiyat × 1e6. */
+  priceMicro: number;
+  /** Önceki normal seans kapanışına göre değişim, baz puan (100 = %1). */
+  changeBps: number | null;
+  /** oncesi = pre-market, sonrasi = after-hours. */
+  session: "oncesi" | "sonrasi";
+}
+
 /** Bir sağlayıcıdan dönen tek fiyat sonucu. */
 export type FetchedQuote =
   | {
@@ -20,6 +30,11 @@ export type FetchedQuote =
       asOf: string | null;
       /** Sağlayıcının bildirdiği isim — kullanıcı boş bıraktıysa doldurulur. */
       name: string | null;
+      /**
+       * Seans dışı (pre-market / after-hours) fiyat. Yalnızca ABD
+       * hisselerinde ve yalnızca o seans sürerken gelir; yoksa null.
+       */
+      extended?: ExtendedSessionQuote | null;
     }
   | {
       symbol: string;

@@ -1,5 +1,9 @@
 import { toPriceMicro, toNumber, rawSampleOf, type Json } from "./parse";
-import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
+import {
+  RATE_LIMIT_PREFIX,
+  type ExtendedSessionQuote,
+  type FetchedQuote,
+} from "./types";
 
 /**
  * TradingView tarayıcı (scanner) uç noktası.
@@ -23,7 +27,27 @@ import { RATE_LIMIT_PREFIX, type FetchedQuote } from "./types";
  * göre okunur. Sıra kayarsa fiyat uydurulmaz, hata dönülür.
  */
 
-const COLUMNS = ["close", "change", "currency", "description"] as const;
+/** Her pazarda istenen temel sütunlar. */
+const BASE_COLUMNS = ["close", "change", "currency", "description"] as const;
+
+/**
+ * ABD hisselerinde ek olarak istenen seans dışı sütunları.
+ *
+ * `close` yalnızca NORMAL seansın fiyatıdır. ABD borsalarında normal seans
+ * Türkiye saatiyle 16:30-23:00 arasıdır; gündüz görülen hareketin çoğu
+ * seans öncesidir ve `close`'a hiç yansımaz.
+ *
+ * TradingView'e göre bu alanlar yalnızca ilgili seans sürerken dolar:
+ * seans sonrası alanları normal seans başlamadan önce boştur, seans öncesi
+ * alanları da yeni bir seans öncesi başlayınca sıfırlanır. Yani null gelmesi
+ * normaldir, hata değildir.
+ */
+const EXTENDED_COLUMNS = [
+  "premarket_close",
+  "premarket_change",
+  "postmarket_close",
+  "postmarket_change",
+] as const;
 
 /**
  * Pazar → tarayıcı yolu ve olası borsa önekleri.
@@ -33,9 +57,16 @@ const COLUMNS = ["close", "change", "currency", "description"] as const;
  * hepsi birden sorulur — tek istek olduğu için maliyeti yok, yanıt sade koda
  * göre eşlendiğinden hangisi dönerse o kullanılır.
  */
-const MARKET_SCOPE: Record<string, { path: string; prefixes: string[] }> = {
-  bist: { path: "turkey", prefixes: ["BIST"] },
-  nasdaq: { path: "america", prefixes: ["NASDAQ", "NYSE", "AMEX"] },
+const MARKET_SCOPE: Record<
+  string,
+  { path: string; prefixes: string[]; extendedHours: boolean }
+> = {
+  bist: { path: "turkey", prefixes: ["BIST"], extendedHours: false },
+  nasdaq: {
+    path: "america",
+    prefixes: ["NASDAQ", "NYSE", "AMEX"],
+    extendedHours: true,
+  },
 };
 
 /** Bir istekte kaç sembol sorulabilir. */
@@ -59,57 +90,107 @@ export async function fetchTradingViewQuotes(
     scope.prefixes.map((prefix) => `${prefix}:${symbol}`),
   );
 
-  let res: Response;
-  try {
-    res = await fetch(`https://scanner.tradingview.com/${scope.path}/scan`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "User-Agent":
-          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      },
-      body: JSON.stringify({
-        symbols: { tickers, query: { types: [] } },
-        columns: COLUMNS,
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-      cache: "no-store",
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error ? `Bağlantı: ${error.message}` : "Bağlantı hatası";
-    return symbols.map((symbol) => ({ symbol, ok: false, error: message }));
+  /* ABD'de önce seans dışı sütunlarla denenir. Sütun adları tarayıcının
+     sözlüğünde yoksa TradingView isteği tümden reddeder; o durumda temel
+     sütunlarla tek bir kez daha denenir. Böylece seans dışı desteği hiçbir
+     koşulda mevcut çalışan davranışı bozamaz. */
+  const attempts: Array<readonly string[]> = scope.extendedHours
+    ? [[...BASE_COLUMNS, ...EXTENDED_COLUMNS], BASE_COLUMNS]
+    : [BASE_COLUMNS];
+
+  let lastError = "TradingView yanıt vermedi";
+
+  for (const columns of attempts) {
+    let res: Response;
+    try {
+      res = await fetch(`https://scanner.tradingview.com/${scope.path}/scan`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "User-Agent":
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        },
+        body: JSON.stringify({
+          symbols: { tickers, query: { types: [] } },
+          columns,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+        cache: "no-store",
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? `Bağlantı: ${error.message}` : "Bağlantı hatası";
+      return symbols.map((symbol) => ({ symbol, ok: false, error: message }));
+    }
+
+    if (res.status === 429) {
+      return symbols.map((symbol) => ({
+        symbol,
+        ok: false,
+        error: `${RATE_LIMIT_PREFIX}: TradingView çok fazla istek aldı (429).`,
+      }));
+    }
+
+    if (!res.ok) {
+      // 400/422 genelde tanınmayan sütun demektir; sade istekle tekrar denenir.
+      lastError = `TradingView HTTP ${res.status}`;
+      continue;
+    }
+
+    let body: Json;
+    try {
+      body = (await res.json()) as Json;
+    } catch {
+      lastError = "TradingView yanıtı JSON değil";
+      continue;
+    }
+
+    return parseTradingViewBody(body, symbols, columns);
   }
 
-  if (res.status === 429) {
-    return symbols.map((symbol) => ({
-      symbol,
-      ok: false,
-      error: `${RATE_LIMIT_PREFIX}: TradingView çok fazla istek aldı (429).`,
-    }));
+  return symbols.map((symbol) => ({ symbol, ok: false, error: lastError }));
+}
+
+/**
+ * Seans dışı fiyatı okur.
+ *
+ * Seans sonrası, seans öncesine tercih edilir: ikisi birden doluysa daha
+ * yeni olan seans sonrasıdır (normal seans kapandıktan sonra gelen veri).
+ * İkisi de boşsa null döner — bu hata değil, o an seans dışı işlem
+ * olmadığı anlamına gelir.
+ */
+function readExtended(at: (name: string) => Json): ExtendedSessionQuote | null {
+  const candidates: Array<{
+    session: "sonrasi" | "oncesi";
+    price: number | null;
+    change: number | null;
+  }> = [
+    {
+      session: "sonrasi",
+      price: toNumber(at("postmarket_close")),
+      change: toNumber(at("postmarket_change")),
+    },
+    {
+      session: "oncesi",
+      price: toNumber(at("premarket_close")),
+      change: toNumber(at("premarket_change")),
+    },
+  ];
+
+  for (const candidate of candidates) {
+    const priceMicro = toPriceMicro(candidate.price);
+    if (priceMicro === null) continue;
+    return {
+      priceMicro,
+      // Yüzdeyi baz puana çevir: %0,42 → 42
+      changeBps:
+        candidate.change === null ? null : Math.round(candidate.change * 100),
+      session: candidate.session,
+    };
   }
 
-  if (!res.ok) {
-    return symbols.map((symbol) => ({
-      symbol,
-      ok: false,
-      error: `TradingView HTTP ${res.status}`,
-    }));
-  }
-
-  let body: Json;
-  try {
-    body = (await res.json()) as Json;
-  } catch {
-    return symbols.map((symbol) => ({
-      symbol,
-      ok: false,
-      error: "TradingView yanıtı JSON değil",
-    }));
-  }
-
-  return parseTradingViewBody(body, symbols);
+  return null;
 }
 
 /**
@@ -122,6 +203,7 @@ export async function fetchTradingViewQuotes(
 export function parseTradingViewBody(
   body: Json,
   symbols: string[],
+  columns: readonly string[] = BASE_COLUMNS,
 ): FetchedQuote[] {
   const rows =
     typeof body === "object" && body !== null && Array.isArray((body as { data?: Json }).data)
@@ -158,11 +240,18 @@ export function parseTradingViewBody(
       };
     }
 
-    // Sütun sırası istekteki COLUMNS ile aynıdır.
-    const close = toNumber(values[0] ?? null);
-    const changePercent = toNumber(values[1] ?? null);
-    const currencyRaw = values[2];
-    const description = values[3];
+    /* `d` dizisi istekte gönderilen sütun sırasını izler; konumlar sabit
+       varsayılmaz, istenen listeden okunur. Sütun istenmemişse -1 döner ve
+       değer null kalır. */
+    const at = (name: string): Json => {
+      const index = columns.indexOf(name);
+      return index >= 0 ? (values[index] ?? null) : null;
+    };
+
+    const close = toNumber(at("close"));
+    const changePercent = toNumber(at("change"));
+    const currencyRaw = at("currency");
+    const description = at("description");
 
     const priceMicro = toPriceMicro(close);
     if (priceMicro === null) {
@@ -197,6 +286,7 @@ export function parseTradingViewBody(
       // Tarayıcı değerleme günü vermez; fiyat "şu an"a aittir.
       asOf: null,
       name: typeof description === "string" && description.length > 0 ? description : null,
+      extended: readExtended(at),
     };
   });
 }

@@ -587,6 +587,18 @@ export const quotes = sqliteTable(
     currency: text("currency").notNull().default("TRY"),
     /** Önceki kapanış — günlük değişim bundan türetilir. */
     previousCloseMicro: integer("previous_close_micro"),
+
+    /* ── Seans dışı (pre-market / after-hours) ──
+       ABD borsalarında normal seans Türkiye saatiyle 16:30-23:00 arasıdır.
+       Gündüz görülen hareketin çoğu seans ÖNCESİdir ve `priceMicro` onu
+       içermez. Değerleme varsayılan olarak normal seans kapanışıyla yapılır
+       (aracı kurum ekstresiyle aynı taban); seans dışı fiyat ayrı tutulur. */
+    /** Seans dışı son fiyat (× 1e6). Seans dışı veri yoksa null. */
+    extendedPriceMicro: integer("extended_price_micro"),
+    /** Önceki normal seans kapanışına göre değişim, baz puan (100 = %1). */
+    extendedChangeBps: integer("extended_change_bps"),
+    /** oncesi | sonrasi — hangi seans dışı dönem. */
+    extendedSession: text("extended_session"),
     /** Fiyatın ait olduğu gün (YYYY-MM-DD). */
     asOf: text("as_of"),
     fetchedAt: integer("fetched_at").notNull().default(now),

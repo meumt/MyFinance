@@ -37,6 +37,11 @@ export interface AppSettings {
   quoteTtlMinutes: number;
   /** Panel/yatırım sayfası açıldığında bayat fiyatlar kendiliğinden yenilensin. */
   autoRefreshQuotes: boolean;
+  /**
+   * ABD hisselerinde seans dışı (pre-market / after-hours) fiyat değerlemeye
+   * dahil edilsin mi? Kapalıyken fiyat yine gösterilir ama toplama girmez.
+   */
+  useExtendedHours: boolean;
 
   ntfyEnabled: boolean;
   ntfyServer: string;
@@ -77,6 +82,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   fonolojiApiKey: "",
   quoteTtlMinutes: 15,
   autoRefreshQuotes: true,
+  useExtendedHours: false,
 
   ntfyEnabled: false,
   ntfyServer: "https://ntfy.sh",
