@@ -1,0 +1,14 @@
+{
+  "_aciklama": [
+    "Bu dosyanin adi ORTAK KLASORDE 'kullanicilar.json' olmali.",
+    "Burada adi ve sifresi gecenler duzenleyebilir; digerleri 'Sadece goruntule' ile girer.",
+    "Dosya klasorde yoksa yetki kapali demektir: herkes duzenleyebilir.",
+    "Sifreyi duz metin yazmak istemiyorsan 'sifre' yerine 'sifreOzet' kullan (SHA-256, onaltilik).",
+    "Ad buyuk/kucuk harfe duyarli degil; giris ekranindaki adla eslesmesi yeter."
+  ],
+  "kullanicilar": [
+    { "ad": "Türker", "sifre": "degistir-beni" },
+    { "ad": "Ali Veli", "sifre": "1234" },
+    { "ad": "Ayşe", "sifreOzet": "e2e1c1a5f1a0a3c5f8fb51dcf1bd0e40d1ea7c3a2f0e2b1a4b6f0a17a9f52a1b" }
+  ]
+}
